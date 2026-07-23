@@ -16,12 +16,19 @@ try {
   baileysModule = await import('@whiskeysockets/baileys');
 }
 
-const makeWASocket = baileysModule.default ?? baileysModule.makeWASocket;
+const makeWASocket =
+  (typeof baileysModule.default === 'function' ? baileysModule.default : null)
+  || baileysModule.makeWASocket
+  || baileysModule.default?.makeWASocket;
 const {
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,
-} = baileysModule;
+} = {
+  DisconnectReason: baileysModule.DisconnectReason ?? baileysModule.default?.DisconnectReason,
+  fetchLatestBaileysVersion: baileysModule.fetchLatestBaileysVersion ?? baileysModule.default?.fetchLatestBaileysVersion,
+  useMultiFileAuthState: baileysModule.useMultiFileAuthState ?? baileysModule.default?.useMultiFileAuthState,
+};
 
 function buildRuntimeConfig(overrides = {}) {
   const merged = {
@@ -186,12 +193,16 @@ function isLikelyImageUrl(url) {
 
 function getLocationPrimaryImage(point) {
   const avatarImages = Array.isArray(point.avatarImages) ? point.avatarImages : [];
+  const qrCodeImageUrl = String(point.qrCodeImageUrl || '').trim();
   const candidates = [
     ...avatarImages,
     point.avatarImageUrl,
-    point.qrCodeImageUrl,
   ];
-  return candidates.find((url) => isLikelyImageUrl(url)) || null;
+  return candidates.find((url) => {
+    if (!isLikelyImageUrl(url)) return false;
+    if (!qrCodeImageUrl) return true;
+    return String(url || '').trim() !== qrCodeImageUrl;
+  }) || null;
 }
 
 function buildLocationLinks(point) {
@@ -221,7 +232,18 @@ function buildLocationSummary(route, point) {
   ].join('\n');
 }
 
-async function sendLocationLinksWithFallback(sock, jid, quotedMessage, links) {
+function buildLocationMessage(summary, descriptions) {
+  if (!descriptions) return summary;
+
+  return [
+    summary,
+    '',
+    'Description:',
+    descriptions,
+  ].join('\n');
+}
+
+async function sendLocationLinksWithFallback(sock, jid, quotedMessage, links, textBody = '') {
   if (links.length === 0) return true;
 
   const messageChunks = chunkLinksForButtons(links);
@@ -230,7 +252,9 @@ async function sendLocationLinksWithFallback(sock, jid, quotedMessage, links) {
 
   for (let i = 0; i < messageChunks.length; i += 1) {
     const chunk = messageChunks[i];
-    const intro = i === 0 ? 'Pilih link di bawah:' : 'Pilihan link tambahan:';
+    const intro = i === 0
+      ? (textBody || 'Pilih link di bawah:')
+      : 'Pilihan link tambahan:';
     try {
       const messagePayload = useInteractiveButtons
         ? {
@@ -289,6 +313,7 @@ async function sendLocationResponse(sock, jid, quotedMessage, route, point) {
   const imageUrl = getLocationPrimaryImage(point);
   const links = buildLocationLinks(point);
   const descriptions = formatPointDescriptions(point);
+  const locationMessage = buildLocationMessage(summary, descriptions);
 
   if (imageUrl) {
     try {
@@ -296,29 +321,35 @@ async function sendLocationResponse(sock, jid, quotedMessage, route, point) {
         jid,
         {
           image: { url: imageUrl },
-          caption: summary,
         },
         { quoted: quotedMessage },
       );
     } catch (error) {
       console.warn('Failed to send location image, fallback to text summary:', error);
-      await sock.sendMessage(jid, { text: summary }, { quoted: quotedMessage });
+      await sock.sendMessage(jid, { text: locationMessage }, { quoted: quotedMessage });
     }
-  } else {
-    await sock.sendMessage(jid, { text: summary }, { quoted: quotedMessage });
   }
 
-  const sentButtons = await sendLocationLinksWithFallback(sock, jid, quotedMessage, links);
-
-  if (descriptions) {
+  if (links.length === 0) {
     await sock.sendMessage(
       jid,
-      { text: `Description:\n${descriptions}` },
+      { text: locationMessage },
       { quoted: quotedMessage },
     );
+    return;
   }
 
+  const sentButtons = await sendLocationLinksWithFallback(
+    sock,
+    jid,
+    quotedMessage,
+    links,
+    locationMessage,
+  );
+
   if (!sentButtons && links.length > 0) {
+    await sock.sendMessage(jid, { text: locationMessage }, { quoted: quotedMessage });
+
     const allLinksText = links
       .map((link, idx) => `${idx + 1}. ${link.label}: ${link.url}`)
       .join('\n');
