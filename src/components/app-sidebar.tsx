@@ -1,7 +1,7 @@
 import * as React from "react"
 import {
   CalendarDays, CheckIcon, ChevronsUpDown, Cog, House, Images,
-  Moon, Package, Pencil, Sun, Users, MapPin, MessageCircle,
+  Moon, Package, Pencil, Sun, Users, MapPin, MessageCircle, Globe, Terminal,
 } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading"
 import {
@@ -33,53 +33,52 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const workspaces = [
+const dropdownOptions = [
   {
-    id: "home",
-    name: "Home",
-    description: "Dashboard & quick access",
-    initial: "H",
-    color: "bg-indigo-600",
+    id: "web",
+    name: "Web",
+    description: "Main web experience",
+    initial: "W",
+    color: "bg-sky-600",
     page: "home",
+    icon: Globe,
+    iconColor: "text-sky-500",
   },
   {
-    id: "operations",
-    name: "Operations",
-    description: "Routes & deliveries",
-    initial: "O",
+    id: "bot-whatsapp",
+    name: "Bot WhatsApp",
+    description: "WhatsApp bot controls",
+    initial: "B",
     color: "bg-emerald-600",
-    page: "route-list",
-  },
-  {
-    id: "gallery",
-    name: "Gallery",
-    description: "Plano VM & site images",
-    initial: "G",
-    color: "bg-pink-600",
-    page: "plano-vm",
+    page: "bot-dashboard",
+    icon: MessageCircle,
+    iconColor: "text-emerald-500",
   },
 ]
 
-const navItems = [
+const webNavItems = [
   { title: "Home",        icon: House,        page: "home",                iconColor: "text-indigo-500" },
   { title: "Route List",  icon: Package,      page: "route-list",          iconColor: "text-emerald-500" },
   { title: "Location",    icon: CalendarDays, page: "deliveries",          iconColor: "text-sky-500" },
   { title: "Rooster",     icon: Users,        page: "rooster",             iconColor: "text-orange-500" },
   { title: "Plano VM",    icon: Images,       page: "plano-vm",            iconColor: "text-pink-500" },
   { title: "Site Images", icon: MapPin,       page: "gallery-site-images", iconColor: "text-rose-500" },
+]
+
+const botNavItems = [
   { title: "Bot Dashboard", icon: MessageCircle, page: "bot-dashboard", iconColor: "text-green-600" },
+  { title: "Command", icon: Terminal, page: "bot-command", iconColor: "text-sky-500" },
+  { title: "Bot Settings", icon: Cog, page: "bot-settings", iconColor: "text-amber-500" },
 ]
 
 const settingsItems = [
   { title: "Settings", icon: Cog, page: "settings", iconColor: "text-amber-500" },
 ]
 
-function getActiveWorkspace(currentPage: string | undefined) {
-  if (!currentPage) return workspaces[0]
-  if (currentPage === "home") return workspaces[0]
-  if (["route-list", "deliveries", "custom", "rooster", "bot-dashboard"].includes(currentPage)) return workspaces[1]
-  if (["plano-vm", "gallery-album", "gallery-site-images"].includes(currentPage)) return workspaces[2]
-  return workspaces[0]
+function getActiveDropdownOption(currentPage: string | undefined) {
+  if (!currentPage) return dropdownOptions[0]
+  if (["bot-dashboard", "bot-command", "bot-settings"].includes(currentPage)) return dropdownOptions[1]
+  return dropdownOptions[0]
 }
 
 export function AppSidebar({
@@ -113,7 +112,9 @@ export function AppSidebar({
     else applyEditModeChange(!isEditMode)
   }
 
-  const activeWorkspace = getActiveWorkspace(currentPage)
+  const activeDropdownOption = getActiveDropdownOption(currentPage)
+  const isBotWhatsappView = activeDropdownOption.id === "bot-whatsapp"
+  const visibleNavItems = isBotWhatsappView ? botNavItems : webNavItems
 
   return (
     <>
@@ -125,13 +126,13 @@ export function AppSidebar({
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton size="lg">
                     <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-md ${activeWorkspace.color} text-white text-sm font-bold shrink-0`}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md ${activeDropdownOption.color} text-white text-sm font-bold shrink-0`}
                     >
-                      {activeWorkspace.initial}
+                      {activeDropdownOption.initial}
                     </div>
                     <div className="flex flex-col leading-tight min-w-0">
-                      <span className="font-semibold text-sm truncate">{activeWorkspace.name}</span>
-                      <span className="text-xs text-muted-foreground truncate">{activeWorkspace.description}</span>
+                      <span className="font-semibold text-sm truncate">{activeDropdownOption.name}</span>
+                      <span className="text-xs text-muted-foreground truncate">{activeDropdownOption.description}</span>
                     </div>
                     <ChevronsUpDown className="ml-auto size-4 text-muted-foreground shrink-0" />
                   </SidebarMenuButton>
@@ -141,24 +142,20 @@ export function AppSidebar({
                   align="start"
                 >
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    Workspaces
+                    Select View
                   </DropdownMenuLabel>
-                  {workspaces.map((ws) => {
-                    const isActive = ws.id === activeWorkspace.id
+                  {dropdownOptions.map((item) => {
+                    const isActive = item.id === activeDropdownOption.id
                     return (
                       <DropdownMenuItem
-                        key={ws.id}
+                        key={item.id}
                         className="gap-2"
-                        onSelect={() => navigate(ws.page)}
+                        onSelect={() => navigate(item.page)}
                       >
-                        <div
-                          className={`flex h-6 w-6 items-center justify-center rounded ${ws.color} text-white text-xs font-bold shrink-0`}
-                        >
-                          {ws.initial}
-                        </div>
+                        <item.icon className={`size-4 shrink-0 ${item.iconColor}`} />
                         <div className="flex flex-col leading-tight">
-                          <span className="text-sm">{ws.name}</span>
-                          <span className="text-xs text-muted-foreground">{ws.description}</span>
+                          <span className="text-sm">{item.name}</span>
+                          <span className="text-xs text-muted-foreground">{item.description}</span>
                         </div>
                         {isActive && (
                           <CheckIcon className="ml-auto size-4 shrink-0" />
@@ -182,7 +179,7 @@ export function AppSidebar({
                   <DropdownMenuSeparator />
                   <div className="px-2 py-1.5">
                     <p className="text-[11px] text-muted-foreground">
-                      Switch between workspaces to manage routes, gallery and more.
+                      Switch quickly between Web and Bot WhatsApp.
                     </p>
                   </div>
                 </DropdownMenuContent>
@@ -196,7 +193,7 @@ export function AppSidebar({
             <SidebarGroupLabel>Navigation</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map((item) => (
+                {visibleNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       isActive={currentPage === item.page}
@@ -211,24 +208,26 @@ export function AppSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
 
-          <SidebarGroup>
-            <SidebarGroupLabel>General</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {settingsItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      isActive={currentPage?.startsWith("settings") ?? false}
-                      onClick={() => navigate(item.page)}
-                    >
-                      <item.icon className={`size-4 ${item.iconColor}`} />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {!isBotWhatsappView && (
+            <SidebarGroup>
+              <SidebarGroupLabel>General</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {settingsItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        isActive={currentPage?.startsWith("settings") ?? false}
+                        onClick={() => navigate(item.page)}
+                      >
+                        <item.icon className={`size-4 ${item.iconColor}`} />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
         </SidebarContent>
 
         <SidebarFooter>

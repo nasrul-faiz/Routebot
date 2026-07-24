@@ -17,7 +17,14 @@ Professional route planning and calendar management application for delivery ser
 
 ```bash
 npm install
+cp .env.example .env
 npm run dev
+```
+
+Untuk guna API + database lokal, jalankan server sekali:
+
+```bash
+npm start
 ```
 
 ## 📱 PWA & Deployment
@@ -41,11 +48,13 @@ This repository now includes a WhatsApp Web bot module that can fetch route data
 Quick start:
 
 ```bash
-cd bot
 npm install
-cp .env.example .env
 npm start
 ```
+
+Bot kini baca konfigurasi dari root `.env` secara automatik.
+Jika perlukan setting khas untuk bot sahaja, anda boleh tambah fail `bot/.env` sebagai override optional.
+Prefix default bot ialah `.` jadi command seperti `.help`, `.zip`, dan `.unzip` terus boleh digunakan.
 
 Then scan the QR in terminal from WhatsApp Linked Devices.
 

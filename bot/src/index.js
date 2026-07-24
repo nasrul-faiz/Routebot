@@ -1,9 +1,33 @@
-import 'dotenv/config';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'url';
+import { config as loadDotenv } from 'dotenv';
 import axios from 'axios';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
-import { pathToFileURL } from 'url';
 import { buildLocationLinks as buildLocationLinksFromPoint, chunkLinksForButtons } from './link-buttons.js';
+import { buildTtsCommandResult } from './tts.js';
+import { buildUnzipCommandReply, buildZipCommandReply } from './zip.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const botDir = path.resolve(__dirname, '..');
+const rootDir = path.resolve(botDir, '..');
+
+function loadEnvironment() {
+  const rootEnvPath = path.join(rootDir, '.env');
+  const botEnvPath = path.join(botDir, '.env');
+
+  // Load shared root env first, then allow bot-specific overrides.
+  if (fs.existsSync(rootEnvPath)) {
+    loadDotenv({ path: rootEnvPath, override: false });
+  }
+  if (fs.existsSync(botEnvPath)) {
+    loadDotenv({ path: botEnvPath, override: true });
+  }
+}
+
+loadEnvironment();
 
 let baileysModule;
 let useInteractiveButtons = false;
@@ -33,14 +57,14 @@ const {
 function buildRuntimeConfig(overrides = {}) {
   const merged = {
     appBaseUrl: process.env.APP_BASE_URL || '',
-    commandPrefix: process.env.COMMAND_PREFIX || '!',
+    commandPrefix: process.env.COMMAND_PREFIX || '.',
     authDir: process.env.AUTH_DIR || '.wa-auth',
     allowedNumbers: process.env.ALLOWED_NUMBERS || '',
     ...overrides,
   };
 
   const appBaseUrl = String(merged.appBaseUrl || '').replace(/\/$/, '');
-  const commandPrefix = String(merged.commandPrefix || '!');
+  const commandPrefix = String(merged.commandPrefix || '.');
   const authDir = String(merged.authDir || '.wa-auth');
   const allowedNumbers = new Set(
     String(merged.allowedNumbers || '')
@@ -361,7 +385,7 @@ async function sendLocationResponse(sock, jid, quotedMessage, route, point) {
   }
 }
 
-async function executeCommand(text, runtime) {
+export async function executeCommand(text, runtime) {
   const { commandPrefix, http } = runtime;
   const raw = text.trim();
   if (!raw.startsWith(commandPrefix)) return null;
@@ -381,6 +405,9 @@ async function executeCommand(text, runtime) {
       `${commandPrefix}routes - Senarai semua route`,
       `${commandPrefix}route <code|name> - Detail route`,
       `${commandPrefix}today - Ringkasan stop aktif hari ini`,
+      `${commandPrefix}tts <text> - Hantar teks + voice note dari audio lokal`,
+      `${commandPrefix}zip <text> - Compress teks ke gzip+base64`,
+      `${commandPrefix}unzip <base64> - Nyahmampat gzip+base64 ke teks`,
       `${commandPrefix}<location_code> - Detail lokasi + gambar + link (contoh: ${commandPrefix}33)`,
     ].join('\n');
   }
@@ -424,15 +451,32 @@ async function executeCommand(text, runtime) {
     return `Active Stops Today\n\n${lines.join('\n')}${extra}`;
   }
 
+  if (command === 'tts' || command === 'voice') {
+    const textToRead = arg || 'Halo, bot Routebot siap membantu.';
+    return buildTtsCommandResult(textToRead, { lang: 'ms' });
+  }
+
+  if (command === 'zip') {
+    return buildZipCommandReply(arg);
+  }
+
+  if (command === 'unzip') {
+    return buildUnzipCommandReply(arg);
+  }
+
   if (!arg) {
-    const routes = await fetchRoutes(http);
-    const foundLocation = findLocationByCode(routes, command);
-    if (foundLocation) {
-      return {
-        type: 'location',
-        route: foundLocation.route,
-        point: foundLocation.point,
-      };
+    try {
+      const routes = await fetchRoutes(http);
+      const foundLocation = findLocationByCode(routes, command);
+      if (foundLocation) {
+        return {
+          type: 'location',
+          route: foundLocation.route,
+          point: foundLocation.point,
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to resolve location command:', error);
     }
   }
 
@@ -529,6 +573,29 @@ export async function startBot(overrides = {}) {
 
         if (typeof reply === 'string') {
           await sock.sendMessage(remoteJid, { text: reply }, { quoted: msg });
+          continue;
+        }
+
+        if (reply.type === 'tts') {
+          if (reply.audioBuffer) {
+            await sock.sendMessage(
+              remoteJid,
+              {
+                audio: reply.audioBuffer,
+                mimetype: 'audio/mpeg',
+                ptt: false,
+              },
+              { quoted: msg },
+            );
+            continue;
+          }
+
+          const audioMessage = reply.audioUrl
+            ? {
+                text: `Suara siap: ${reply.audioUrl}`,
+              }
+            : { text: 'Audio tidak tersedia pada saat ini.' };
+          await sock.sendMessage(remoteJid, audioMessage, { quoted: msg });
           continue;
         }
 

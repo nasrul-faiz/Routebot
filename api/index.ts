@@ -1,22 +1,25 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { neon } from '@neondatabase/serverless';
 
-if (!process.env.DATABASE_URL) {
-  console.warn('[api] DATABASE_URL not configured; database-backed endpoints will return 500 until configured');
+function getDatabaseClient() {
+  const databaseUrl = String(process.env.DATABASE_URL || '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '');
+
+  if (!databaseUrl) {
+    console.warn('[api] DATABASE_URL not configured; database-backed endpoints will return 500 until configured');
+    return null;
+  }
+
+  try {
+    return neon(databaseUrl);
+  } catch (error) {
+    console.warn('[api] Invalid DATABASE_URL, database endpoints will return 500 until configured:', error);
+    return null;
+  }
 }
 
-const sql = process.env.DATABASE_URL
-  ? neon(process.env.DATABASE_URL)
-  : new Proxy(function () {
-      throw new Error('DATABASE_URL not configured');
-    } as unknown as ReturnType<typeof neon>, {
-      get() {
-        throw new Error('DATABASE_URL not configured');
-      },
-      apply() {
-        throw new Error('DATABASE_URL not configured');
-      },
-    });
+const sql = getDatabaseClient();
 
 function setCors(res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -26,7 +29,7 @@ function setCors(res: VercelResponse) {
 
 // ── /api/calendar ─────────────────────────────────────────────────────────────
 async function handleCalendar(req: VercelRequest, res: VercelResponse) {
-  if (!process.env.DATABASE_URL) {
+  if (!sql) {
     return res.status(500).json({ success: false, error: 'DATABASE_URL not configured' });
   }
   await sql`CREATE TABLE IF NOT EXISTS calendar_events (
@@ -61,6 +64,10 @@ async function handleCalendar(req: VercelRequest, res: VercelResponse) {
 
 // ── /api/deliveries ───────────────────────────────────────────────────────────
 async function handleDeliveries(req: VercelRequest, res: VercelResponse) {
+  if (!sql) {
+    return res.status(500).json({ success: false, error: 'DATABASE_URL not configured' });
+  }
+
   await sql`CREATE TABLE IF NOT EXISTS deliveries (
     id SERIAL PRIMARY KEY, tracking_no VARCHAR(100) UNIQUE NOT NULL,
     recipient_name VARCHAR(255), address TEXT, status VARCHAR(50) DEFAULT 'pending',

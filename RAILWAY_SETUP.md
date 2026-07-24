@@ -16,7 +16,7 @@ Set variable ini di Railway:
 - `IMGBB_API_KEY` = optional untuk upload image
 - `ENABLE_WHATSAPP_BOT` = `true` jika nak hidupkan bot
 - `APP_BASE_URL` = URL public app (contoh `https://routebot-production.up.railway.app`)
-- `COMMAND_PREFIX` = contoh `!`
+- `COMMAND_PREFIX` = contoh `.`
 - `ALLOWED_NUMBERS` = optional, contoh `60123456789,6281234567890`
 - `AUTH_DIR` = optional, default `.wa-auth`
 - `BOT_DASHBOARD_TOKEN` = optional token untuk lindungi page dashboard bot
@@ -28,6 +28,8 @@ Railway biasanya auto-detect dari `package.json`:
 - Build: `npm run build`
 - Start: `npm start`
 
+Jika anda hanya mahu semak bot sahaja secara manual, command lokal ialah `npm run start:bot`, tetapi untuk Railway unified deploy kekalkan `npm start`.
+
 ## 3) Persistent Volume (penting untuk QR session)
 
 Untuk elak scan QR setiap restart:
@@ -35,6 +37,7 @@ Untuk elak scan QR setiap restart:
 1. Tambah volume di Railway service
 2. Mount path ke project root (contoh `/app`)
 3. Pastikan `AUTH_DIR` menunjuk folder persistent (contoh `/app/.wa-auth`)
+4. Untuk kestabilan WhatsApp Web session, gunakan single replica sahaja.
 
 ## 4) First Pairing
 
@@ -58,3 +61,4 @@ Selepas deploy:
 
 - Jika anda deploy lebih dari 1 replica, WhatsApp session boleh konflik.
 - Untuk bot WhatsApp Web, guna single replica.
+- Pastikan `APP_BASE_URL` ialah URL public Railway service, bukan `127.0.0.1`, supaya bot boleh capai endpoint app sendiri selepas deploy.

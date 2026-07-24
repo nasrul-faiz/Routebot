@@ -21,6 +21,8 @@ const SiteImages = lazy(() => import("@/components/SiteImages").then(m => ({ def
 const Rooster = lazy(() => import("@/components/Rooster").then(m => ({ default: m.Rooster })))
 const CustomRoutePage = lazy(() => import("@/components/CustomRoutePage").then(m => ({ default: m.CustomRoutePage })))
 const BotDashboard = lazy(() => import("@/components/BotDashboard").then(m => ({ default: m.BotDashboard })))
+const BotCommand = lazy(() => import("@/components/BotCommand").then(m => ({ default: m.BotCommand })))
+const BotSettings = lazy(() => import("@/components/BotSettings").then(m => ({ default: m.BotSettings })))
 import { EditModeProvider } from "@/contexts/EditModeContext"
 import { DeviceProvider } from "@/contexts/DeviceContext"
 import { RefreshProvider, useRefresh } from "@/contexts/RefreshContext"
@@ -1806,6 +1808,7 @@ function AppContent() {
     locationTitle: "Location",
     locationSubtitle: "View and manage delivery records.",
     breadcrumb: {
+      web: "Web",
       vendingMachine: "Vending Machine",
       routeList: "Route List",
       custom: "Custom",
@@ -1814,6 +1817,7 @@ function AppContent() {
       rooster: "Rooster",
       settings: "Settings",
       profile: "Profile",
+      botWhatsApp: "Bot WhatsApp",
       botDashboard: "Bot Dashboard",
       notifications: "Notifications",
       font: "Font",
@@ -1831,7 +1835,7 @@ function AppContent() {
     if (page === currentPage) return
     
     // Track recently visited pages
-const trackablePages = ["route-list", "custom", "deliveries", "rooster", "plano-vm", "gallery-album", "gallery-site-images", "settings-profile", "bot-dashboard"]
+const trackablePages = ["route-list", "custom", "deliveries", "rooster", "plano-vm", "gallery-album", "gallery-site-images", "settings-profile", "bot-dashboard", "bot-command", "bot-settings"]
     if (trackablePages.includes(page)) {
       addToRecent(page as any)
     }
@@ -1889,6 +1893,10 @@ const trackablePages = ["route-list", "custom", "deliveries", "rooster", "plano-
         return <SiteImages />
       case "bot-dashboard":
         return <BotDashboard />
+      case "bot-command":
+        return <BotCommand />
+      case "bot-settings":
+        return <BotSettings />
       case "home":
       default:
         return <HomePage onNavigate={handlePageChange} />
@@ -1898,13 +1906,13 @@ const trackablePages = ["route-list", "custom", "deliveries", "rooster", "plano-
   const getPageBreadcrumbs = (): { parent?: { label: string }; current: string } => {
     switch (currentPage) {
       case "route-list":
-        return { parent: { label: "Operations" }, current: contentText.breadcrumb.routeList }
+        return { parent: { label: contentText.breadcrumb.web }, current: contentText.breadcrumb.routeList }
       case "custom":
-        return { parent: { label: "Operations" }, current: contentText.breadcrumb.custom }
+        return { parent: { label: contentText.breadcrumb.web }, current: contentText.breadcrumb.custom }
       case "deliveries":
-        return { parent: { label: "Operations" }, current: contentText.breadcrumb.location }
+        return { parent: { label: contentText.breadcrumb.web }, current: contentText.breadcrumb.location }
       case "rooster":
-        return { parent: { label: contentText.breadcrumb.schedule }, current: contentText.breadcrumb.rooster }
+        return { parent: { label: contentText.breadcrumb.web }, current: contentText.breadcrumb.rooster }
       case "settings":
         return { current: contentText.breadcrumb.settings }
       case "settings-profile":
@@ -1920,13 +1928,17 @@ const trackablePages = ["route-list", "custom", "deliveries", "rooster", "plano-
       case "settings-security":
         return { parent: { label: contentText.breadcrumb.settings }, current: contentText.breadcrumb.security }
       case "plano-vm":
-        return { parent: { label: contentText.breadcrumb.gallery }, current: "Plano VM" }
+        return { parent: { label: contentText.breadcrumb.web }, current: "Plano VM" }
       case "gallery-album":
-        return { parent: { label: contentText.breadcrumb.gallery }, current: contentText.breadcrumb.album }
+        return { parent: { label: contentText.breadcrumb.web }, current: contentText.breadcrumb.album }
       case "gallery-site-images":
-        return { parent: { label: contentText.breadcrumb.gallery }, current: contentText.breadcrumb.siteImages }
+        return { parent: { label: contentText.breadcrumb.web }, current: contentText.breadcrumb.siteImages }
       case "bot-dashboard":
-        return { parent: { label: "Operations" }, current: contentText.breadcrumb.botDashboard }
+        return { parent: { label: contentText.breadcrumb.botWhatsApp }, current: contentText.breadcrumb.botDashboard }
+      case "bot-command":
+        return { parent: { label: contentText.breadcrumb.botWhatsApp }, current: "Command" }
+      case "bot-settings":
+        return { parent: { label: contentText.breadcrumb.botWhatsApp }, current: "Bot Settings" }
       case "home":
       default:
         return { current: contentText.breadcrumb.home }

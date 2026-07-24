@@ -28,37 +28,50 @@ cd bot
 npm install
 ```
 
-3. Copy env template:
+3. Setup env utama di root project:
 
 ```bash
+cd ..
 cp .env.example .env
 ```
 
-4. Edit `.env`:
+4. (Optional) Buat override khusus bot jika perlu:
 
+```bash
+cd bot
+cp .env.example .env
+```
+
+5. Edit env:
+
+- Root `.env` untuk setting shared (disyorkan)
+- `bot/.env` hanya jika anda mahu override bot sahaja
 - `APP_BASE_URL` contoh: `https://routebot-anda.vercel.app`
-- `COMMAND_PREFIX` contoh: `!`
+- `COMMAND_PREFIX` contoh: `.`
 - `ALLOWED_NUMBERS` contoh: `60123456789,6281234567890`
 
-5. Jalankan bot:
+6. Jalankan bot:
 
 ```bash
 npm start
 ```
 
-6. Scan QR yang muncul dalam terminal:
+7. Scan QR yang muncul dalam terminal:
 
 - WhatsApp -> Linked Devices -> Link a Device
 
 ## Command tersedia
 
-Dengan prefix default `!`:
+Dengan prefix default `.`:
 
-- `!help` - bantuan
-- `!ping` - check bot hidup
-- `!routes` - ringkasan semua route
-- `!route <code|name>` - detail route dan lokasi
-- `!today` - ringkasan active stop hari ini
+- `.help` - bantuan
+- `.ping` - check bot hidup
+- `.routes` - ringkasan semua route
+- `.route <code|name>` - detail route dan lokasi
+- `.today` - ringkasan active stop hari ini
+- `.tts <text>` - hantar teks dan voice note TTS
+- `.zip <text>` - compress teks jadi `gzip+base64`
+- `.unzip <base64>` - buka semula data `gzip+base64` jadi teks
 
 ## Nota penting
 

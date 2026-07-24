@@ -152,9 +152,16 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
         display: grid;
         place-items: center;
         background: #fafafa;
-        padding: 10px;
+        padding: 16px;
+        text-align: center;
       }
-      .qr-box img { width: 280px; height: 280px; }
+      .qr-box img { width: 280px; height: 280px; border-radius: 12px; }
+      .qr-instructions {
+        margin-top: 12px;
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
       .status {
         font-weight: 700;
         margin-bottom: 10px;
@@ -184,6 +191,11 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
       <div class="card">
         <h1>WhatsApp Bot Dashboard</h1>
         <p>Scan QR ini di WhatsApp > Linked Devices > Link a Device.</p>
+        <div class="qr-instructions">
+          1. Buka WhatsApp di telefon anda.<br/>
+          2. Pergi ke Settings > Linked Devices > Link a Device.<br/>
+          3. Imbas QR yang muncul di sini.
+        </div>
         <div class="grid">
           <section>
             <div class="qr-box" id="qrBox">Menunggu status bot...</div>
@@ -219,11 +231,11 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
 
         if (data.status === 'qr' && data.qr) {
           const src = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(data.qr);
-          qrBox.innerHTML = '<img alt="WhatsApp QR" src="' + src + '" />';
+          qrBox.innerHTML = '<img alt="WhatsApp QR" src="' + src + '" /><div class="qr-instructions">Imbas kod ini pada telefon anda untuk sambungkan bot.</div>';
         } else if (data.status === 'connected') {
-          qrBox.textContent = 'Bot connected. QR tidak diperlukan.';
+          qrBox.innerHTML = '<div class="qr-instructions">Bot connected. QR tidak diperlukan lagi.</div>';
         } else {
-          qrBox.textContent = 'QR belum tersedia. Tunggu pairing event.';
+          qrBox.innerHTML = '<div class="qr-instructions">QR belum tersedia. Tunggu sehingga bot mengeluarkan kod sambungan.</div>';
         }
 
         debugEl.textContent = JSON.stringify(data, null, 2);
@@ -231,7 +243,8 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
 
       async function refresh() {
         try {
-          const response = await fetch('/bot/status${tokenParam}');
+          const statusUrl = '/bot/status' + tokenParam;
+          const response = await fetch(statusUrl);
           const payload = await response.json();
           if (payload?.success) {
             render(payload.data);
