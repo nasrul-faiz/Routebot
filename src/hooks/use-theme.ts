@@ -2,15 +2,17 @@ import { useEffect, useState } from "react"
 
 export type ColorMode = "light" | "dark"
 
+const COLOR_MODE_OPTIONS: ColorMode[] = ["light", "dark"]
+
 /** meta theme-color backgrounds */
 const META_BG: Record<ColorMode, string> = {
-  light: "#ffffff",
-  dark:  "#0a0a0a",
+  light: "#eceff3",
+  dark:  "#15171b",
 }
 
 const META_TILE: Record<ColorMode, string> = {
-  light: "#f8f8f8",
-  dark:  "#0f0f0f",
+  light: "#e6e9ef",
+  dark:  "#1a1d23",
 }
 
 const APPLE_STATUS_BAR_STYLE: Record<ColorMode, string> = {
@@ -62,7 +64,27 @@ function getStoredOrDefaultFont(): AppFont {
 export type AppZoom = "80" | "85" | "90" | "95" | "100" | "105" | "110" | "115" | "120"
 export type TextSize = "13" | "14" | "15" | "16" | "17" | "18" | "20"
 
+const TEXT_SIZE_OPTIONS: TextSize[] = ["13", "14", "15", "16", "17", "18", "20"]
+
 const APP_ZOOM_OPTIONS: AppZoom[] = ["80", "85", "90", "95", "100", "105", "110", "115", "120"]
+
+function getStoredOrDefaultMode(): ColorMode {
+  const stored = localStorage.getItem("colorMode")
+  if (stored !== null && COLOR_MODE_OPTIONS.includes(stored as ColorMode)) {
+    return stored as ColorMode
+  }
+  return "dark"
+}
+
+function getStoredOrDefaultTextSize(): TextSize {
+  const stored = localStorage.getItem("text-size")
+  if (stored !== null && TEXT_SIZE_OPTIONS.includes(stored as TextSize)) {
+    return stored as TextSize
+  }
+  const fallback: TextSize = "15"
+  localStorage.setItem("text-size", fallback)
+  return fallback
+}
 
 function getStoredOrDefaultZoom(): AppZoom {
   const stored = localStorage.getItem("app-zoom")
@@ -93,18 +115,14 @@ function loadGoogleFont(googleId: string) {
 }
 
 export function useTheme() {
-  const [mode, setMode] = useState<ColorMode>(() =>
-    (localStorage.getItem("colorMode") as ColorMode) ?? "dark"
-  )
+  const [mode, setMode] = useState<ColorMode>(() => getStoredOrDefaultMode())
   const [appFont, setAppFont] = useState<AppFont>(() =>
     getStoredOrDefaultFont()
   )
   const [appZoom, setAppZoom] = useState<AppZoom>(() =>
     getStoredOrDefaultZoom()
   )
-  const [textSize, setTextSize] = useState<TextSize>(() =>
-    (localStorage.getItem("text-size") as TextSize) ?? "14"
-  )
+  const [textSize, setTextSize] = useState<TextSize>(() => getStoredOrDefaultTextSize())
 
   // Apply color mode
   useEffect(() => {

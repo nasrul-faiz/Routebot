@@ -1273,6 +1273,9 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
   const [draftMapStyle, setDraftMapStyle] = useState<'google-streets' | 'google-satellite' | 'osm'>(getMapStyle)
   const [draftKmMode, setDraftKmMode] = useState<'direct' | 'step'>('direct')
   const [draftKmStartPoint, setDraftKmStartPoint] = useState<{ lat: number; lng: number }>(DEFAULT_MAP_CENTER)
+  const [isLocatingKmStartPoint, setIsLocatingKmStartPoint] = useState(false)
+  const [isLocatingSingleCoordinateCode, setIsLocatingSingleCoordinateCode] = useState<string | null>(null)
+  const [isLocatingNewPointCoordinates, setIsLocatingNewPointCoordinates] = useState(false)
   const [markerPolyBaseline, setMarkerPolyBaseline] = useState<{
     showPolyline: boolean
     markerStyle: 'pin' | 'dot' | 'ring'
@@ -1668,6 +1671,116 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
     setMapRefitToken((value) => value + 1)
     setMapResizeToken((value) => value + 1)
   }
+
+  const useCurrentLocationForKmStartPoint = useCallback(() => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      toast.error('Geolocation is not supported on this device.')
+      return
+    }
+
+    setIsLocatingKmStartPoint(true)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = Number(position.coords.latitude.toFixed(6))
+        const lng = Number(position.coords.longitude.toFixed(6))
+        setDraftKmStartPoint({ lat, lng })
+        setIsLocatingKmStartPoint(false)
+        toast.success('Current location applied to Start Lat/Lng.')
+      },
+      (error) => {
+        let description = 'Please allow location access and try again.'
+        if (error.code === error.PERMISSION_DENIED) description = 'Location permission was denied by your browser.'
+        if (error.code === error.POSITION_UNAVAILABLE) description = 'Location information is unavailable right now.'
+        if (error.code === error.TIMEOUT) description = 'Location request timed out. Please retry.'
+
+        setIsLocatingKmStartPoint(false)
+        toast.error('Unable to fetch current location.', { description })
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 30000,
+      }
+    )
+  }, [])
+
+  const useCurrentLocationForSingleCoordinateDraft = useCallback((point: DeliveryPoint) => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      toast.error('Geolocation is not supported on this device.')
+      return
+    }
+
+    setIsLocatingSingleCoordinateCode(point.code)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = Number(position.coords.latitude.toFixed(6))
+        const lng = Number(position.coords.longitude.toFixed(6))
+
+        setDraftCoordinates((prev) => ({
+          ...prev,
+          [point.code]: {
+            lat: formatCoordinateInput(lat),
+            lng: formatCoordinateInput(lng),
+          },
+        }))
+
+        setIsLocatingSingleCoordinateCode(null)
+        toast.success(`Current location applied to ${point.code}.`)
+      },
+      (error) => {
+        let description = 'Please allow location access and try again.'
+        if (error.code === error.PERMISSION_DENIED) description = 'Location permission was denied by your browser.'
+        if (error.code === error.POSITION_UNAVAILABLE) description = 'Location information is unavailable right now.'
+        if (error.code === error.TIMEOUT) description = 'Location request timed out. Please retry.'
+
+        setIsLocatingSingleCoordinateCode(null)
+        toast.error(`Unable to fetch current location for ${point.code}.`, { description })
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 30000,
+      }
+    )
+  }, [])
+
+  const useCurrentLocationForNewPoint = useCallback(() => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      toast.error('Geolocation is not supported on this device.')
+      return
+    }
+
+    setIsLocatingNewPointCoordinates(true)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = Number(position.coords.latitude.toFixed(6))
+        const lng = Number(position.coords.longitude.toFixed(6))
+
+        setNewPoint((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng,
+        }))
+
+        setIsLocatingNewPointCoordinates(false)
+        toast.success('Current location applied to new point coordinates.')
+      },
+      (error) => {
+        let description = 'Please allow location access and try again.'
+        if (error.code === error.PERMISSION_DENIED) description = 'Location permission was denied by your browser.'
+        if (error.code === error.POSITION_UNAVAILABLE) description = 'Location information is unavailable right now.'
+        if (error.code === error.TIMEOUT) description = 'Location request timed out. Please retry.'
+
+        setIsLocatingNewPointCoordinates(false)
+        toast.error('Unable to fetch current location for the new point.', { description })
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 30000,
+      }
+    )
+  }, [])
 
   const saveCoordinateSettings = () => {
     if (!isEditMode || !currentRoute) return
@@ -4067,27 +4180,65 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
                             />
                           </div>
 
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-medium">Latitude</label>
-                              <Input
-                                type="number"
-                                step="0.0001"
-                                placeholder="0.0000"
-                                value={newPoint.latitude || ""}
-                                onChange={(e) => setNewPoint({ ...newPoint, latitude: parseFloat(e.target.value) || 0 })}
-                              />
+                          <div className="rounded-xl border border-border/70 bg-muted/20 p-3 space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="size-6 rounded-md bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                                  <MapPin className="size-3.5" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-semibold text-foreground leading-none">Coordinates</p>
+                                  <p className="text-[10px] text-muted-foreground mt-1 truncate">Isi manual atau guna lokasi semasa peranti</p>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={useCurrentLocationForNewPoint}
+                                disabled={isLocatingNewPointCoordinates}
+                                className="h-7 px-2.5 text-[10px] rounded-lg"
+                              >
+                                {isLocatingNewPointCoordinates ? 'Detecting...' : 'Use Current'}
+                              </Button>
                             </div>
 
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-medium">Longitude</label>
-                              <Input
-                                type="number"
-                                step="0.0001"
-                                placeholder="0.0000"
-                                value={newPoint.longitude || ""}
-                                onChange={(e) => setNewPoint({ ...newPoint, longitude: parseFloat(e.target.value) || 0 })}
-                              />
+                            <div className="grid grid-cols-2 gap-3">
+                              <label className="space-y-1.5">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Latitude</span>
+                                <Input
+                                  type="number"
+                                  step="0.000001"
+                                  placeholder="3.000000"
+                                  value={newPoint.latitude || ""}
+                                  onChange={(e) => setNewPoint({ ...newPoint, latitude: parseFloat(e.target.value) || 0 })}
+                                  className="h-8 text-[11px]"
+                                />
+                              </label>
+
+                              <label className="space-y-1.5">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Longitude</span>
+                                <Input
+                                  type="number"
+                                  step="0.000001"
+                                  placeholder="101.000000"
+                                  value={newPoint.longitude || ""}
+                                  onChange={(e) => setNewPoint({ ...newPoint, longitude: parseFloat(e.target.value) || 0 })}
+                                  className="h-8 text-[11px]"
+                                />
+                              </label>
+                            </div>
+
+                            <div className="flex justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2.5 text-[10px]"
+                                onClick={() => setNewPoint((prev) => ({ ...prev, latitude: 0, longitude: 0 }))}
+                              >
+                                Reset Coordinates
+                              </Button>
                             </div>
                           </div>
 
@@ -5431,7 +5582,16 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
                       />
                     </label>
                   </div>
-                  <div className="flex justify-end">
+                  <div className="flex justify-between gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={useCurrentLocationForKmStartPoint}
+                      disabled={isLocatingKmStartPoint}
+                      className="text-xs h-8 px-3 rounded-lg"
+                    >
+                      {isLocatingKmStartPoint ? 'Detecting...' : 'Use My Current Location'}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -5458,15 +5618,18 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Navigation2 className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Delivery Points</span>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Navigation2 className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Delivery Points</span>
+                  </div>
                 </div>
                 {/* Header row */}
-                <div className="grid grid-cols-[1fr_100px_100px] gap-3 px-2 py-2 items-center border-b border-border/40">
+                <div className="grid grid-cols-[1fr_106px_106px_54px] gap-2 px-2 py-2 items-center border-b border-border/40">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center flex items-center justify-center">Location</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center flex items-center justify-center">Latitude</span>
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center flex items-center justify-center">Longitude</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground text-center flex items-center justify-center">Act</span>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1">
                   {deliveryPoints
@@ -5486,14 +5649,15 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
                       return (
                         <div
                           key={point.code}
-                          className={`grid grid-cols-[1fr_100px_100px] items-center gap-3 rounded-lg border px-3 py-2 ${
+                          className={`grid grid-cols-[1fr_106px_106px_54px] items-center gap-2 rounded-lg border px-3 py-2 ${
                             hasPendingCoordinate
                               ? 'border-amber-400/50 bg-amber-50/40 dark:bg-amber-900/10'
                               : 'border-border bg-background'
                           }`}
                         >
-                          <div className="min-w-0 flex items-center justify-center">
-                            <p className="text-[10px] font-semibold truncate leading-tight text-center">{point.name || '-'}</p>
+                          <div className="min-w-0 flex flex-col items-center justify-center text-center">
+                            <p className="text-[10px] font-semibold truncate leading-tight w-full">{point.name || '-'}</p>
+                            <p className="text-[9px] text-muted-foreground mt-0.5">{point.code}</p>
                           </div>
                           <Input
                             type="number"
@@ -5509,7 +5673,7 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
                               }))
                             }}
                             disabled={!isEditMode}
-                            className="h-7 text-[10px] px-2 text-center"
+                            className="h-7 text-[10px] px-2 text-center mx-auto"
                             placeholder="0.000000"
                           />
                           <Input
@@ -5526,9 +5690,24 @@ export function RouteList({ variant = 'route-list' }: RouteListProps) {
                               }))
                             }}
                             disabled={!isEditMode}
-                            className="h-7 text-[10px] px-2 text-center"
+                            className="h-7 text-[10px] px-2 text-center mx-auto"
                             placeholder="0.000000"
                           />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => useCurrentLocationForSingleCoordinateDraft(point)}
+                            disabled={!isEditMode || isLocatingSingleCoordinateCode === point.code}
+                            className="h-7 w-7 rounded-md p-0 mx-auto"
+                            title="Use current location for this point"
+                          >
+                            {isLocatingSingleCoordinateCode === point.code ? (
+                              <span className="text-[10px] font-semibold">…</span>
+                            ) : (
+                              <MapPin className="size-3.5" />
+                            )}
+                          </Button>
                         </div>
                       )
                     })}

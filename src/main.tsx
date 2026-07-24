@@ -10,7 +10,10 @@ import { DEFAULT_APP_FONT, FONT_OPTIONS } from "./hooks/use-theme"
 // ── Apply persisted display settings before first paint ──────────────────────
 ;(function applyStoredDisplaySettings() {
   try {
-    const colorMode = localStorage.getItem("colorMode") ?? "dark"
+    const storedColorMode = localStorage.getItem("colorMode")
+    const colorMode = storedColorMode === "light" || storedColorMode === "dark"
+      ? storedColorMode
+      : "dark"
     document.documentElement.classList.toggle("dark", colorMode === "dark")
     localStorage.removeItem("eye-comfort")
 
@@ -35,7 +38,11 @@ import { DEFAULT_APP_FONT, FONT_OPTIONS } from "./hooks/use-theme"
     }
     window.addEventListener("resize", handleResize, { passive: true })
 
-    const textSize = localStorage.getItem("text-size") ?? "14"
+    const storedTextSize = localStorage.getItem("text-size")
+    const allowedTextSizes = new Set(["13", "14", "15", "16", "17", "18", "20"])
+    const textSize = storedTextSize !== null && allowedTextSizes.has(storedTextSize)
+      ? storedTextSize
+      : "15"
     document.documentElement.style.setProperty("--text-size-base", `${textSize}px`)
 
     const storedFont = localStorage.getItem("app-font")
