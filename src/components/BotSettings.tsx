@@ -21,7 +21,7 @@ export function BotSettings() {
             Base URL and token
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Ensure APP_BASE_URL and dashboard token are valid before pairing devices.
+            Ensure APP_BASE_URL, dashboard token, and BOT_PAIRING_METHOD are valid before pairing devices.
           </p>
         </div>
 

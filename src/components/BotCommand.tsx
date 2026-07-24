@@ -14,8 +14,16 @@ const COMMAND_ITEMS = [
     description: "Quick latency check for bot response.",
   },
   {
+    label: ".tts teks contoh",
+    description: "Send a voice note generated from text.",
+  },
+  {
     label: ".zip teks contoh",
-    description: "Compress text into gzip+base64 for quick sharing.",
+    description: "Compress text into gzip+base64, or reply media to get a real .zip file.",
+  },
+  {
+    label: ".unzip base64 contoh",
+    description: "Decompress gzip+base64 or replied content back to text.",
   },
 ]
 

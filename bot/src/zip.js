@@ -1,8 +1,14 @@
 import { Buffer } from 'node:buffer';
+import JSZip from 'jszip';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
 function normalizeBase64(value) {
   return String(value || '').trim().replace(/\s+/g, '');
+}
+
+function normalizeArchiveEntryName(value) {
+  const cleaned = String(value || '').trim().replace(/[\\/]+/g, '_');
+  return cleaned || 'attachment.bin';
 }
 
 export function zipTextToBase64(text) {
@@ -59,4 +65,33 @@ export function buildUnzipCommandReply(payload) {
   } catch {
     return 'Data unzip tidak sah. Pastikan input ialah gzip+base64 yang dijana oleh command zip.';
   }
+}
+
+export async function buildZipArchiveBuffer(contentBuffer, entryName = 'attachment.bin') {
+  if (!Buffer.isBuffer(contentBuffer) || contentBuffer.length === 0) {
+    return null;
+  }
+
+  const zip = new JSZip();
+  zip.file(normalizeArchiveEntryName(entryName), contentBuffer);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+export async function buildZipMediaCommandReply(contentBuffer, entryName = 'attachment.bin', archiveName = 'attachment.zip') {
+  const archiveBuffer = await buildZipArchiveBuffer(contentBuffer, entryName);
+  if (!archiveBuffer) {
+    return {
+      type: 'zip-file',
+      document: null,
+      fileName: archiveName,
+      mimetype: 'application/zip',
+    };
+  }
+
+  return {
+    type: 'zip-file',
+    document: archiveBuffer,
+    fileName: archiveName,
+    mimetype: 'application/zip',
+  };
 }

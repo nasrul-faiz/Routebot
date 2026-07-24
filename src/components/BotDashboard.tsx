@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { MessageCircle, QrCode, RefreshCw, ShieldAlert, Wifi } from 'lucide-react'
+import { MessageCircle, QrCode, RefreshCw, ShieldAlert, Wifi, Phone, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-type BotStatus = 'disabled' | 'starting' | 'qr' | 'connected' | 'closed' | 'reconnecting' | 'logged-out' | 'error'
+type BotStatus = 'disabled' | 'starting' | 'qr' | 'pairing-phone' | 'pairing-code' | 'connected' | 'closed' | 'reconnecting' | 'logged-out' | 'error'
 
 type BotStatePayload = {
   enabled: boolean
   status: BotStatus
   qr: string | null
+  pairingMethod: 'qr' | 'phone' | null
+  pairingPhoneNumber: string | null
+  pairingCode: string | null
   updatedAt: string | null
   lastError: string | null
 }
@@ -16,6 +19,8 @@ const STATUS_LABEL: Record<BotStatus, string> = {
   disabled: 'Disabled',
   starting: 'Starting',
   qr: 'Waiting QR Scan',
+  'pairing-phone': 'Pairing Phone',
+  'pairing-code': 'Pairing Code Ready',
   connected: 'Connected',
   closed: 'Connection Closed',
   reconnecting: 'Reconnecting',
@@ -94,6 +99,8 @@ export function BotDashboard() {
     return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(state.qr)}`
   }, [state?.qr])
 
+  const isPhonePairing = state?.pairingMethod === 'phone' || state?.status === 'pairing-phone' || state?.status === 'pairing-code'
+
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-4 p-4 md:p-6">
       <div className="rounded-2xl border border-border/70 bg-card p-4 md:p-5">
@@ -104,7 +111,7 @@ export function BotDashboard() {
               WhatsApp Bot Dashboard
             </h1>
             <p className="mt-1 text-xs md:text-sm text-muted-foreground">
-              Scan QR untuk pair bot di WhatsApp Linked Devices dan pantau status sambungan.
+              Pair bot melalui QR code atau nombor telefon, kemudian pantau status sambungan.
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" onClick={() => void fetchStatus()} className="gap-1.5 shrink-0">
@@ -115,7 +122,7 @@ export function BotDashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-4">
         <div className="rounded-2xl border border-border/70 bg-card p-4 md:p-5 flex flex-col gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">QR Pairing</p>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Pairing</p>
           <div className="rounded-xl border border-dashed border-border bg-muted/30 min-h-[340px] flex items-center justify-center p-3">
             {loading ? (
               <p className="text-xs text-muted-foreground">Loading bot status...</p>
@@ -130,8 +137,32 @@ export function BotDashboard() {
                 <Wifi className="size-8 text-emerald-500 mx-auto mb-2" />
                 <p className="text-sm font-semibold">Bot sudah connected</p>
                 <p className="text-[11px] text-muted-foreground mt-1">QR tak diperlukan selagi sesi masih aktif.</p>
+                {state.pairingMethod ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">Paired via: {state.pairingMethod === 'phone' ? 'Phone number' : 'QR code'}</p>
+                ) : null}
               </div>
-            ) : qrImageUrl ? (
+            ) : state?.status === 'pairing-code' && state.pairingCode ? (
+              <div className="text-center px-4 w-full">
+                <Phone className="size-8 text-sky-500 mx-auto mb-2" />
+                <p className="text-sm font-semibold">Phone pairing ready</p>
+                <p className="text-[11px] text-muted-foreground mt-1">Masukkan code ini dalam WhatsApp &gt; Linked Devices &gt; Link with phone number.</p>
+                <code className="mt-3 block rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono tracking-[0.25em] break-all">
+                  {state.pairingCode}
+                </code>
+                {state.pairingPhoneNumber ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">Nombor: {state.pairingPhoneNumber}</p>
+                ) : null}
+              </div>
+            ) : state?.status === 'pairing-phone' ? (
+              <div className="text-center px-4">
+                <Phone className="size-8 text-sky-500 mx-auto mb-2" />
+                <p className="text-sm font-semibold">Menjana pairing code...</p>
+                <p className="text-[11px] text-muted-foreground mt-1">Tunggu seketika, bot sedang minta code daripada WhatsApp.</p>
+                {state.pairingPhoneNumber ? (
+                  <p className="mt-2 text-[11px] text-muted-foreground">Nombor: {state.pairingPhoneNumber}</p>
+                ) : null}
+              </div>
+            ) : qrImageUrl && !isPhonePairing ? (
               <img src={qrImageUrl} alt="WhatsApp QR" className="w-[300px] h-[300px] max-w-full max-h-full rounded-lg bg-white p-2" />
             ) : (
               <div className="text-center px-4">
@@ -156,18 +187,50 @@ export function BotDashboard() {
           </div>
 
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
-            <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Cara scan QR</p>
+            <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Cara pair bot</p>
             <ol className="mt-1 text-[11px] text-muted-foreground list-decimal pl-4 space-y-0.5">
-              <li>Buka WhatsApp di telefon.</li>
-              <li>Pergi ke Linked Devices.</li>
-              <li>Tekan Link a Device.</li>
-              <li>Scan QR di panel sebelah kiri.</li>
+              <li>Pilih QR code jika mahu scan kod.</li>
+              <li>Pilih nombor telefon jika mahu dapat pairing code.</li>
+              <li>QR mode guna Linked Devices &gt; Link a Device.</li>
+              <li>Phone mode guna Linked Devices &gt; Link with phone number.</li>
             </ol>
           </div>
 
           <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Pairing method</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className={`rounded-full px-2 py-1 ${state?.pairingMethod === 'qr' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-background text-muted-foreground'}`}>QR</span>
+              <span className={`rounded-full px-2 py-1 ${state?.pairingMethod === 'phone' ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300' : 'bg-background text-muted-foreground'}`}>Phone</span>
+              <span className="text-muted-foreground">Current: {state?.pairingMethod || 'unknown'}</span>
+            </div>
+            {state?.pairingPhoneNumber ? (
+              <p className="mt-2 text-[11px] text-muted-foreground">Phone: {state.pairingPhoneNumber}</p>
+            ) : null}
+            {state?.pairingCode ? (
+              <div className="mt-2 rounded-lg border border-border bg-background px-3 py-2">
+                <p className="text-[11px] text-muted-foreground">Pairing code</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <code className="font-mono text-sm tracking-[0.25em] break-all">{state.pairingCode}</code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={async () => {
+                      if (!state.pairingCode) return
+                      await navigator.clipboard.writeText(state.pairingCode)
+                    }}
+                  >
+                    <Copy className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
             <p className="text-[11px] text-muted-foreground">
-              Jika status sentiasa error, semak env Railway: ENABLE_WHATSAPP_BOT, APP_BASE_URL, AUTH_DIR, dan volume persistence.
+              Jika status sentiasa error, semak env Railway: ENABLE_WHATSAPP_BOT, APP_BASE_URL, AUTH_DIR, BOT_PAIRING_METHOD, dan volume persistence.
             </p>
           </div>
         </div>

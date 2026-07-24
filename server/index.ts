@@ -18,8 +18,11 @@ const port = Number(process.env.PORT || 3000);
 
 type BotRuntimeState = {
   enabled: boolean;
-  status: 'disabled' | 'starting' | 'qr' | 'connected' | 'closed' | 'reconnecting' | 'logged-out' | 'error';
+  status: 'disabled' | 'starting' | 'qr' | 'pairing-phone' | 'pairing-code' | 'connected' | 'closed' | 'reconnecting' | 'logged-out' | 'error';
   qr: string | null;
+  pairingMethod: 'qr' | 'phone' | null;
+  pairingPhoneNumber: string | null;
+  pairingCode: string | null;
   updatedAt: string | null;
   lastError: string | null;
 };
@@ -28,6 +31,9 @@ const botState: BotRuntimeState = {
   enabled: false,
   status: 'disabled',
   qr: null,
+  pairingMethod: null,
+  pairingPhoneNumber: null,
+  pairingCode: null,
   updatedAt: null,
   lastError: null,
 };
@@ -81,6 +87,7 @@ function buildBotStatusResponse() {
     data: {
       ...botState,
       qr: botState.status === 'qr' ? botState.qr : null,
+      pairingCode: botState.status === 'pairing-code' ? botState.pairingCode : null,
     },
   };
 }
@@ -156,6 +163,18 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
         text-align: center;
       }
       .qr-box img { width: 280px; height: 280px; border-radius: 12px; }
+      .pairing-code {
+        width: 100%;
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        background: #fff;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 16px;
+        letter-spacing: 0.2em;
+        word-break: break-all;
+      }
       .qr-instructions {
         margin-top: 12px;
         font-size: 14px;
@@ -190,11 +209,12 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
     <main class="wrap">
       <div class="card">
         <h1>WhatsApp Bot Dashboard</h1>
-        <p>Scan QR ini di WhatsApp > Linked Devices > Link a Device.</p>
+        <p>Pair bot melalui QR code atau nombor telefon, kemudian pantau status sambungan.</p>
         <div class="qr-instructions">
-          1. Buka WhatsApp di telefon anda.<br/>
-          2. Pergi ke Settings > Linked Devices > Link a Device.<br/>
-          3. Imbas QR yang muncul di sini.
+          1. Pilih QR code jika mahu scan kod.<br/>
+          2. Pilih nombor telefon jika mahu dapat pairing code.<br/>
+          3. QR mode guna Linked Devices &gt; Link a Device.<br/>
+          4. Phone mode guna Linked Devices &gt; Link with phone number.
         </div>
         <div class="grid">
           <section>
@@ -220,16 +240,38 @@ app.get('/bot/dashboard', ensureDashboardAuth, (req, res) => {
         return 'status warn';
       }
 
+      function statusLabel(status) {
+        const labels = {
+          disabled: 'Disabled',
+          starting: 'Starting',
+          qr: 'Waiting QR Scan',
+          'pairing-phone': 'Pairing Phone',
+          'pairing-code': 'Pairing Code Ready',
+          connected: 'Connected',
+          closed: 'Connection Closed',
+          reconnecting: 'Reconnecting',
+          'logged-out': 'Logged Out',
+          error: 'Error',
+        };
+        return labels[status] || status || 'Unknown';
+      }
+
       function render(data) {
         statusEl.className = statusClass(data.status);
-        statusEl.textContent = 'Status: ' + data.status;
+        statusEl.textContent = 'Status: ' + statusLabel(data.status);
         metaEl.innerHTML = [
           'Bot enabled: <strong>' + (data.enabled ? 'yes' : 'no') + '</strong>',
           'Updated: <strong>' + (data.updatedAt || '-') + '</strong>',
           'Error: <strong>' + (data.lastError || '-') + '</strong>',
+          'Pairing method: <strong>' + (data.pairingMethod || '-') + '</strong>',
+          'Phone number: <strong>' + (data.pairingPhoneNumber || '-') + '</strong>',
         ].join('<br/>');
 
-        if (data.status === 'qr' && data.qr) {
+        if (data.status === 'pairing-code' && data.pairingCode) {
+          qrBox.innerHTML = '<div class="qr-instructions">Masukkan pairing code ini dalam WhatsApp > Linked Devices > Link with phone number.</div><div class="pairing-code">' + data.pairingCode + '</div>';
+        } else if (data.status === 'pairing-phone') {
+          qrBox.innerHTML = '<div class="qr-instructions">Tunggu seketika, bot sedang minta pairing code daripada WhatsApp.</div>';
+        } else if (data.status === 'qr' && data.qr) {
           const src = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(data.qr);
           qrBox.innerHTML = '<img alt="WhatsApp QR" src="' + src + '" /><div class="qr-instructions">Imbas kod ini pada telefon anda untuk sambungkan bot.</div>';
         } else if (data.status === 'connected') {
@@ -309,18 +351,36 @@ app.listen(port, async () => {
 
   try {
     const appBaseUrl = process.env.APP_BASE_URL || `http://127.0.0.1:${port}`;
+    const pairingMethod = String(process.env.BOT_PAIRING_METHOD || process.env.PAIRING_METHOD || '').trim().toLowerCase();
+    const pairingPhoneNumber = String(process.env.BOT_PAIRING_PHONE_NUMBER || process.env.PAIRING_PHONE_NUMBER || '').trim();
+
+    botState.pairingMethod = pairingMethod === 'phone' ? 'phone' : pairingMethod === 'qr' ? 'qr' : null;
+    botState.pairingPhoneNumber = botState.pairingMethod === 'phone' && pairingPhoneNumber ? pairingPhoneNumber : null;
     await startBot({
       appBaseUrl,
       authDir: process.env.AUTH_DIR || path.join(rootDir, '.wa-auth'),
+      pairingMethod: pairingMethod || undefined,
+      pairingPhoneNumber: pairingPhoneNumber || undefined,
       onQr: (qr: string) => {
         botState.qr = qr;
         botState.status = 'qr';
+        botState.pairingCode = null;
+        botState.updatedAt = new Date().toISOString();
+      },
+      onPairingCode: (pairingCode: string, phoneNumber: string) => {
+        botState.pairingMethod = 'phone';
+        botState.pairingPhoneNumber = phoneNumber;
+        botState.pairingCode = pairingCode;
         botState.updatedAt = new Date().toISOString();
       },
       onStatus: (status: BotRuntimeState['status']) => {
         botState.status = status;
         if (status === 'connected') {
           botState.qr = null;
+          botState.pairingCode = null;
+        }
+        if (status === 'closed' || status === 'logged-out' || status === 'error') {
+          botState.pairingCode = null;
         }
         botState.updatedAt = new Date().toISOString();
       },

@@ -61,7 +61,7 @@ npm start
 - `1` = QR code
 - `2` = nombor telefon
 
-Jika pilih nombor telefon, masukkan nombor dalam format antarabangsa tanpa `+` dan tanpa space, contoh `60123456789`.
+Jika pilih nombor telefon, bot akan keluarkan pairing code dan tidak akan paparkan QR. Masukkan nombor dalam format antarabangsa tanpa `+` dan tanpa space, contoh `60123456789`.
 
 8. Jika pilih QR, scan QR yang muncul dalam terminal:
 

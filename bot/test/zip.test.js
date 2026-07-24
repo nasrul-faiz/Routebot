@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import JSZip from 'jszip';
 
 import {
+  buildZipArchiveBuffer,
   buildUnzipCommandReply,
   buildZipCommandReply,
   unzipTextFromBase64,
@@ -28,4 +30,14 @@ test('buildUnzipCommandReply reports invalid payloads', () => {
   const reply = buildUnzipCommandReply('bukan-payload-sah');
 
   assert.match(reply, /tidak sah/i);
+});
+
+test('buildZipArchiveBuffer creates a valid zip archive', async () => {
+  const archiveBuffer = await buildZipArchiveBuffer(Buffer.from('hello world'), 'photo.jpg');
+
+  assert.ok(Buffer.isBuffer(archiveBuffer));
+
+  const zip = await JSZip.loadAsync(archiveBuffer);
+  assert.deepEqual(Object.keys(zip.files), ['photo.jpg']);
+  assert.equal(await zip.file('photo.jpg').async('string'), 'hello world');
 });

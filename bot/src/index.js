@@ -8,7 +8,7 @@ import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { buildLocationLinks as buildLocationLinksFromPoint, chunkLinksForButtons } from './link-buttons.js';
 import { buildTtsCommandResult } from './tts.js';
-import { buildUnzipCommandReply, buildZipCommandReply } from './zip.js';
+import { buildUnzipCommandReply, buildZipCommandReply, buildZipMediaCommandReply } from './zip.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,6 +45,7 @@ const makeWASocket =
   (typeof baileysModule.default === 'function' ? baileysModule.default : null)
   || baileysModule.makeWASocket
   || baileysModule.default?.makeWASocket;
+const downloadContentFromMessage = baileysModule.downloadContentFromMessage ?? baileysModule.default?.downloadContentFromMessage;
 const {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -178,6 +179,74 @@ function getQuotedMessageContent(message) {
   if (!quotedMessage) return '';
 
   return getTextMessageContent(quotedMessage);
+}
+
+function hasDownloadableMedia(media) {
+  return Boolean(media && (media.url || media.thumbnailDirectPath));
+}
+
+function getQuotedMediaMessage(message) {
+  const contextInfo =
+    message?.extendedTextMessage?.contextInfo
+    || message?.imageMessage?.contextInfo
+    || message?.videoMessage?.contextInfo
+    || message?.documentMessage?.contextInfo
+    || message?.audioMessage?.contextInfo
+    || null;
+
+  const quotedMessage = contextInfo?.quotedMessage;
+  if (!quotedMessage) return null;
+
+  const mediaKeys = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'];
+  for (const key of mediaKeys) {
+    const media = quotedMessage[key];
+    if (media && typeof media === 'object' && hasDownloadableMedia(media)) {
+      return {
+        quotedMessage,
+        mediaType: key.replace('Message', ''),
+        media,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getQuotedMediaFileName(mediaType, media) {
+  const fallbackExtByType = {
+    image: 'jpg',
+    video: 'mp4',
+    audio: 'mp3',
+    sticker: 'webp',
+    document: 'bin',
+  };
+
+  const fileName = String(media?.fileName || '').trim();
+  if (mediaType === 'document' && fileName) return fileName;
+
+  const extension = fileName.includes('.')
+    ? fileName.split('.').pop()
+    : fallbackExtByType[mediaType] || 'bin';
+
+  return `quoted-${mediaType}.${extension}`;
+}
+
+async function downloadQuotedMediaBuffer(media, mediaType) {
+  if (typeof downloadContentFromMessage !== 'function') {
+    return null;
+  }
+
+  try {
+    const stream = await downloadContentFromMessage(media, mediaType, {});
+    const chunks = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  } catch (error) {
+    console.warn('Failed to download quoted media:', error);
+    return null;
+  }
 }
 
 function normalizeSender(jid) {
@@ -478,6 +547,7 @@ export async function executeCommand(text, runtime, message = null) {
   const { commandPrefix, http } = runtime;
   const raw = text.trim();
   const quotedText = getQuotedMessageContent(message);
+  const quotedMedia = getQuotedMediaMessage(message);
 
   if (/^\.[0-9]+$/.test(raw)) {
     const locationCode = raw.slice(1);
@@ -516,7 +586,7 @@ export async function executeCommand(text, runtime, message = null) {
       `${commandPrefix}route <code|name> - Detail route`,
       `${commandPrefix}today - Ringkasan stop aktif hari ini`,
       `${commandPrefix}tts <text> - Hantar teks + voice note dari audio lokal`,
-      `${commandPrefix}zip <text> - Compress teks atau reply chat/media ke gzip+base64`,
+      `${commandPrefix}zip <text> - Compress teks ke gzip+base64 atau reply media jadi zip file`,
       `${commandPrefix}unzip <base64> - Nyahmampat gzip+base64 atau reply chat/media ke teks`,
       `${commandPrefix}<location_code> - Detail lokasi + gambar + link`,
       `.<location_code> - Alias lokasi guna dot (contoh: .33)`,
@@ -568,6 +638,15 @@ export async function executeCommand(text, runtime, message = null) {
   }
 
   if (command === 'zip') {
+    if (!arg && quotedMedia) {
+      const mediaBuffer = await downloadQuotedMediaBuffer(quotedMedia.media, quotedMedia.mediaType);
+      if (mediaBuffer) {
+        const entryName = getQuotedMediaFileName(quotedMedia.mediaType, quotedMedia.media);
+        const archiveName = `${entryName.replace(/\.[^.]+$/, '')}.zip`;
+        return buildZipMediaCommandReply(mediaBuffer, entryName, archiveName);
+      }
+    }
+
     return buildZipCommandReply(arg || quotedText);
   }
 
@@ -597,6 +676,7 @@ export async function executeCommand(text, runtime, message = null) {
 export async function startBot(overrides = {}) {
   const onQr = typeof overrides.onQr === 'function' ? overrides.onQr : null;
   const onStatus = typeof overrides.onStatus === 'function' ? overrides.onStatus : null;
+  const onPairingCode = typeof overrides.onPairingCode === 'function' ? overrides.onPairingCode : null;
   const { appBaseUrl, commandPrefix, authDir, allowedNumbers } = buildRuntimeConfig(overrides);
   if (!appBaseUrl) {
     throw new Error('APP_BASE_URL is required. Example: https://your-app.vercel.app');
@@ -607,6 +687,7 @@ export async function startBot(overrides = {}) {
   const http = createHttpClient(appBaseUrl);
   const runtime = { commandPrefix, allowedNumbers, http };
   const pairingMethod = await choosePairingMethod(overrides);
+  const shouldDisplayQr = pairingMethod !== 'phone';
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
@@ -626,6 +707,7 @@ export async function startBot(overrides = {}) {
       const phoneNumber = await choosePairingPhoneNumber(overrides);
       onStatus?.('pairing-phone');
       const pairingCode = await sock.requestPairingCode(phoneNumber);
+      onPairingCode?.(pairingCode, phoneNumber);
       onStatus?.('pairing-code');
       console.log(`Pairing code untuk ${phoneNumber}: ${pairingCode}`);
     } else {
@@ -636,7 +718,7 @@ export async function startBot(overrides = {}) {
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
+    if (qr && shouldDisplayQr) {
       onQr?.(qr);
       onStatus?.('qr');
       console.log('\nScan QR ini dalam WhatsApp > Linked Devices > Link a Device\n');
@@ -694,6 +776,24 @@ export async function startBot(overrides = {}) {
 
         if (typeof reply === 'string') {
           await sock.sendMessage(remoteJid, { text: reply }, { quoted: msg });
+          continue;
+        }
+
+        if (reply.type === 'zip-file') {
+          if (reply.document) {
+            await sock.sendMessage(
+              remoteJid,
+              {
+                document: reply.document,
+                fileName: reply.fileName || 'attachment.zip',
+                mimetype: reply.mimetype || 'application/zip',
+              },
+              { quoted: msg },
+            );
+            continue;
+          }
+
+          await sock.sendMessage(remoteJid, { text: 'Gagal membina zip file untuk media yang direply.' }, { quoted: msg });
           continue;
         }
 
