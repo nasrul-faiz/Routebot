@@ -7,6 +7,7 @@ import axios from 'axios';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { buildLocationLinks as buildLocationLinksFromPoint, chunkLinksForButtons } from './link-buttons.js';
+import { buildStickerCommandReply, parseStickerCommandFlags } from './sticker.js';
 import { buildTtsCommandResult } from './tts.js';
 import { buildUnzipCommandReply, buildZipCommandReply, buildZipMediaCommandReply } from './zip.js';
 
@@ -421,7 +422,7 @@ export function buildTtsAudioMessage(audioBuffer) {
   return {
     audio: audioBuffer,
     mimetype: 'audio/mpeg',
-    ptt: true,
+    ptt: false,
   };
 }
 
@@ -548,6 +549,9 @@ export async function executeCommand(text, runtime, message = null) {
   const raw = text.trim();
   const quotedText = getQuotedMessageContent(message);
   const quotedMedia = getQuotedMediaMessage(message);
+  const quotedMediaDownloader = typeof runtime.downloadQuotedMediaBuffer === 'function'
+    ? runtime.downloadQuotedMediaBuffer
+    : downloadQuotedMediaBuffer;
 
   if (/^\.[0-9]+$/.test(raw)) {
     const locationCode = raw.slice(1);
@@ -585,7 +589,9 @@ export async function executeCommand(text, runtime, message = null) {
       `${commandPrefix}routes - Senarai semua route`,
       `${commandPrefix}route <code|name> - Detail route`,
       `${commandPrefix}today - Ringkasan stop aktif hari ini`,
-      `${commandPrefix}tts <text> - Hantar teks + voice note dari audio lokal`,
+      `${commandPrefix}tts <text> - Hantar teks + audio TTS`,
+      `${commandPrefix}sticker - Reply gambar/video jadi sticker`,
+      `${commandPrefix}sticker nobg - Reply gambar jadi sticker tanpa background`,
       `${commandPrefix}zip <text> - Compress teks ke gzip+base64 atau reply media jadi zip file`,
       `${commandPrefix}unzip <base64> - Nyahmampat gzip+base64 atau reply chat/media ke teks`,
       `${commandPrefix}<location_code> - Detail lokasi + gambar + link`,
@@ -633,13 +639,39 @@ export async function executeCommand(text, runtime, message = null) {
   }
 
   if (command === 'tts' || command === 'voice') {
-    const textToRead = arg || 'Halo, bot Routebot siap membantu.';
+    const textToRead = arg || quotedText || 'Halo, bot Routebot siap membantu.';
     return buildTtsCommandResult(textToRead, { lang: 'ms' });
+  }
+
+  if (command === 'sticker' || command === 'stiker') {
+    if (!quotedMedia) {
+      return `Reply gambar/video dan hantar ${commandPrefix}sticker`;
+    }
+
+    if (quotedMedia.mediaType !== 'image' && quotedMedia.mediaType !== 'video') {
+      return 'Media tidak disokong untuk sticker. Guna gambar atau video.';
+    }
+
+    const mediaBuffer = await quotedMediaDownloader(quotedMedia.media, quotedMedia.mediaType);
+    if (!mediaBuffer) {
+      return 'Gagal memuat turun media yang direply untuk diproses jadi sticker.';
+    }
+
+    const flags = parseStickerCommandFlags(arg);
+    const stickerBuilder = typeof runtime.buildStickerCommandReply === 'function'
+      ? runtime.buildStickerCommandReply
+      : buildStickerCommandReply;
+
+    return stickerBuilder(mediaBuffer, {
+      mediaType: quotedMedia.mediaType,
+      removeBackground: flags.removeBackground,
+      removeBgApiKey: process.env.REMOVE_BG_API_KEY || '',
+    });
   }
 
   if (command === 'zip') {
     if (!arg && quotedMedia) {
-      const mediaBuffer = await downloadQuotedMediaBuffer(quotedMedia.media, quotedMedia.mediaType);
+      const mediaBuffer = await quotedMediaDownloader(quotedMedia.media, quotedMedia.mediaType);
       if (mediaBuffer) {
         const entryName = getQuotedMediaFileName(quotedMedia.mediaType, quotedMedia.media);
         const archiveName = `${entryName.replace(/\.[^.]+$/, '')}.zip`;
@@ -794,6 +826,22 @@ export async function startBot(overrides = {}) {
           }
 
           await sock.sendMessage(remoteJid, { text: 'Gagal membina zip file untuk media yang direply.' }, { quoted: msg });
+          continue;
+        }
+
+        if (reply.type === 'sticker') {
+          if (reply.stickerBuffer) {
+            await sock.sendMessage(
+              remoteJid,
+              { sticker: reply.stickerBuffer },
+              { quoted: msg },
+            );
+            continue;
+          }
+
+          await sock.sendMessage(remoteJid, {
+            text: reply.text || 'Gagal membina sticker.',
+          }, { quoted: msg });
           continue;
         }
 

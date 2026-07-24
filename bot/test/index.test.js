@@ -35,11 +35,11 @@ test('accepts dot-prefixed numeric location commands', async () => {
   assert.equal(reply.point.code, '33');
 });
 
-test('builds tts voice note payload', () => {
+test('builds tts audio payload', () => {
   const payload = buildTtsAudioMessage(Buffer.from('fake-mp3'));
 
   assert.equal(payload.mimetype, 'audio/mpeg');
-  assert.equal(payload.ptt, true);
+  assert.equal(payload.ptt, false);
   assert.ok(Buffer.isBuffer(payload.audio));
 });
 
@@ -91,4 +91,58 @@ test('zip command can read quoted media caption', async () => {
 
   const payload = reply.split('\n').at(-1);
   assert.equal(unzipTextFromBase64(payload), 'Teks dari media');
+});
+
+test('sticker command asks to reply media when no quoted media', async () => {
+  const reply = await executeCommand('.sticker', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+    async buildStickerCommandReply() {
+      throw new Error('should not be called');
+    },
+  });
+
+  assert.match(reply, /Reply gambar\/video/i);
+});
+
+test('sticker command passes nobg flag to sticker builder', async () => {
+  const calls = [];
+  const reply = await executeCommand('.sticker nobg', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+    async buildStickerCommandReply(mediaBuffer, options) {
+      calls.push({ mediaBuffer, options });
+      return {
+        type: 'sticker',
+        stickerBuffer: Buffer.from('fake-webp'),
+      };
+    },
+    async downloadQuotedMediaBuffer() {
+      return Buffer.from('fake-image');
+    },
+  }, {
+    extendedTextMessage: {
+      contextInfo: {
+        quotedMessage: {
+          imageMessage: {
+            url: 'https://example.com/photo.jpg',
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(reply.type, 'sticker');
+  assert.ok(Buffer.isBuffer(reply.stickerBuffer));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.mediaType, 'image');
+  assert.equal(calls[0].options.removeBackground, true);
 });

@@ -84,8 +84,18 @@ Dengan prefix default `.`:
 - `.route <code|name>` - detail route dan lokasi
 - `.today` - ringkasan active stop hari ini
 - `.tts <text>` - hantar teks dan voice note TTS
+- `.sticker` - reply gambar/video untuk jadikan sticker
+- `.sticker nobg` - reply gambar untuk jadikan sticker tanpa background (perlukan `REMOVE_BG_API_KEY`)
 - `.zip <text>` - compress teks jadi `gzip+base64`
 - `.unzip <base64>` - buka semula data `gzip+base64` jadi teks
+
+## Sticker no background
+
+Jika mahu guna mode `.sticker nobg`, isi env berikut dalam root `.env`:
+
+- `REMOVE_BG_API_KEY=...`
+
+API key boleh didapatkan dari remove.bg.
 
 ## Nota penting
 
