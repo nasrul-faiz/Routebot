@@ -7,7 +7,6 @@ import axios from 'axios';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { buildLocationLinks as buildLocationLinksFromPoint, chunkLinksForButtons } from './link-buttons.js';
-import { buildStickerCommandReply, parseStickerCommandFlags } from './sticker.js';
 import { buildTtsCommandResult } from './tts.js';
 import { buildUnzipCommandReply, buildZipCommandReply, buildZipMediaCommandReply } from './zip.js';
 
@@ -407,6 +406,35 @@ function buildLocationSummary(route, point) {
   ].join('\n');
 }
 
+async function resolveStickerHelpers(runtime = {}) {
+  const runtimeBuilder = typeof runtime.buildStickerCommandReply === 'function'
+    ? runtime.buildStickerCommandReply
+    : null;
+  const runtimeFlagParser = typeof runtime.parseStickerCommandFlags === 'function'
+    ? runtime.parseStickerCommandFlags
+    : null;
+
+  if (runtimeBuilder && runtimeFlagParser) {
+    return {
+      buildStickerCommandReply: runtimeBuilder,
+      parseStickerCommandFlags: runtimeFlagParser,
+    };
+  }
+
+  try {
+    const module = await import('./sticker.js');
+    return {
+      buildStickerCommandReply: runtimeBuilder || module.buildStickerCommandReply,
+      parseStickerCommandFlags: runtimeFlagParser || module.parseStickerCommandFlags,
+    };
+  } catch (error) {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND') {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function buildLocationMessage(summary, descriptions) {
   if (!descriptions) return summary;
 
@@ -657,10 +685,13 @@ export async function executeCommand(text, runtime, message = null) {
       return 'Gagal memuat turun media yang direply untuk diproses jadi sticker.';
     }
 
-    const flags = parseStickerCommandFlags(arg);
-    const stickerBuilder = typeof runtime.buildStickerCommandReply === 'function'
-      ? runtime.buildStickerCommandReply
-      : buildStickerCommandReply;
+    const stickerHelpers = await resolveStickerHelpers(runtime);
+    if (!stickerHelpers) {
+      return 'Fitur sticker belum tersedia pada server ini. Sila pasang dependency sticker dan restart bot.';
+    }
+
+    const flags = stickerHelpers.parseStickerCommandFlags(arg);
+    const stickerBuilder = stickerHelpers.buildStickerCommandReply;
 
     return stickerBuilder(mediaBuffer, {
       mediaType: quotedMedia.mediaType,

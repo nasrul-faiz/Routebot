@@ -1,5 +1,14 @@
 # 🚀 Vercel Deployment Setup Guide
 
+## Penting untuk WhatsApp Bot
+
+Vercel sesuai untuk frontend + API serverless, tetapi **tidak sesuai** untuk WhatsApp Web bot yang perlukan proses Node berterusan, session file (`.wa-auth`), dan reconnect loop.
+
+Jika anda mahu guna `.sticker`, `.tts`, atau command WhatsApp lain secara production:
+
+- Deploy bot/unified server di Railway (rujuk [RAILWAY_SETUP.md](RAILWAY_SETUP.md)).
+- Kekalkan Vercel untuk frontend/API sahaja jika diperlukan.
+
 ## Masalah: Calendar events hilang selepas save?
 
 Kalau calendar events tak save atau hilang bila refresh, ini bermaksud **DATABASE_URL tak configure** di Vercel environment variables.

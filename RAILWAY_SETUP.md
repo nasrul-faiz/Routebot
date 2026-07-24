@@ -28,6 +28,16 @@ Railway biasanya auto-detect dari `package.json`:
 - Build: `npm run build`
 - Start: `npm start`
 
+Untuk release terkini (ada fitur `.sticker`), pastikan dependency root dipasang lengkap semasa build. Jika anda guna custom command di Railway, disyorkan:
+
+- Build command: `npm ci && npm run build`
+- Start command: `npm start`
+
+Nota:
+
+- Server unified akan import modul bot dari path root (`/app/bot/src/...`), jadi dependency sticker mesti ada dalam root `node_modules`.
+- Jika anda disable bot (`ENABLE_WHATSAPP_BOT=false`), web+API tetap berjalan normal.
+
 Jika anda hanya mahu semak bot sahaja secara manual, command lokal ialah `npm run start:bot`, tetapi untuk Railway unified deploy kekalkan `npm start`.
 
 ## 3) Persistent Volume (penting untuk QR session)
