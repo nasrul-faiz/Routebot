@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { createInterface } from 'node:readline/promises';
 import { config as loadDotenv } from 'dotenv';
 import axios from 'axios';
 import pino from 'pino';
@@ -77,6 +78,71 @@ function buildRuntimeConfig(overrides = {}) {
   return { appBaseUrl, commandPrefix, authDir, allowedNumbers };
 }
 
+export function normalizePhoneNumber(value) {
+  return String(value || '').trim().replace(/\D/g, '');
+}
+
+async function choosePairingMethod(overrides = {}) {
+  const configuredMethod = String(
+    overrides.pairingMethod
+    || process.env.BOT_PAIRING_METHOD
+    || process.env.PAIRING_METHOD
+    || '',
+  ).trim().toLowerCase();
+
+  if (configuredMethod === 'qr' || configuredMethod === 'phone') {
+    return configuredMethod;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return 'qr';
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const answer = String(
+        await rl.question('Pilih pairing: [1] QR code / [2] number phone: '),
+      ).trim().toLowerCase();
+
+      if (answer === '1' || answer === 'qr' || answer === 'q') return 'qr';
+      if (answer === '2' || answer === 'phone' || answer === 'p') return 'phone';
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function choosePairingPhoneNumber(overrides = {}) {
+  const configuredNumber = normalizePhoneNumber(
+    overrides.pairingPhoneNumber
+    || process.env.BOT_PAIRING_PHONE_NUMBER
+    || process.env.PAIRING_PHONE_NUMBER
+    || '',
+  );
+
+  if (configuredNumber) {
+    return configuredNumber;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('PAIRING_PHONE_NUMBER is required for phone pairing when stdin is not interactive.');
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const answer = normalizePhoneNumber(
+        await rl.question('Masukkan nombor telefon untuk pairing (contoh 60123456789): '),
+      );
+
+      if (answer) return answer;
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 function createHttpClient(baseUrl) {
   return axios.create({
     baseURL: baseUrl,
@@ -97,6 +163,21 @@ function getTextMessageContent(message) {
     || message.documentMessage?.caption
     || ''
   );
+}
+
+function getQuotedMessageContent(message) {
+  const contextInfo =
+    message?.extendedTextMessage?.contextInfo
+    || message?.imageMessage?.contextInfo
+    || message?.videoMessage?.contextInfo
+    || message?.documentMessage?.contextInfo
+    || message?.audioMessage?.contextInfo
+    || null;
+
+  const quotedMessage = contextInfo?.quotedMessage;
+  if (!quotedMessage) return '';
+
+  return getTextMessageContent(quotedMessage);
 }
 
 function normalizeSender(jid) {
@@ -267,6 +348,14 @@ function buildLocationMessage(summary, descriptions) {
   ].join('\n');
 }
 
+export function buildTtsAudioMessage(audioBuffer) {
+  return {
+    audio: audioBuffer,
+    mimetype: 'audio/mpeg',
+    ptt: true,
+  };
+}
+
 async function sendLocationLinksWithFallback(sock, jid, quotedMessage, links, textBody = '') {
   if (links.length === 0) return true;
 
@@ -385,9 +474,30 @@ async function sendLocationResponse(sock, jid, quotedMessage, route, point) {
   }
 }
 
-export async function executeCommand(text, runtime) {
+export async function executeCommand(text, runtime, message = null) {
   const { commandPrefix, http } = runtime;
   const raw = text.trim();
+  const quotedText = getQuotedMessageContent(message);
+
+  if (/^\.[0-9]+$/.test(raw)) {
+    const locationCode = raw.slice(1);
+    try {
+      const routes = await fetchRoutes(http);
+      const foundLocation = findLocationByCode(routes, locationCode);
+      if (foundLocation) {
+        return {
+          type: 'location',
+          route: foundLocation.route,
+          point: foundLocation.point,
+        };
+      }
+
+      return `Lokasi tidak dijumpai untuk: ${locationCode}`;
+    } catch (error) {
+      console.warn('Failed to resolve dot location command:', error);
+    }
+  }
+
   if (!raw.startsWith(commandPrefix)) return null;
 
   const withoutPrefix = raw.slice(commandPrefix.length).trim();
@@ -406,9 +516,10 @@ export async function executeCommand(text, runtime) {
       `${commandPrefix}route <code|name> - Detail route`,
       `${commandPrefix}today - Ringkasan stop aktif hari ini`,
       `${commandPrefix}tts <text> - Hantar teks + voice note dari audio lokal`,
-      `${commandPrefix}zip <text> - Compress teks ke gzip+base64`,
-      `${commandPrefix}unzip <base64> - Nyahmampat gzip+base64 ke teks`,
-      `${commandPrefix}<location_code> - Detail lokasi + gambar + link (contoh: ${commandPrefix}33)`,
+      `${commandPrefix}zip <text> - Compress teks atau reply chat/media ke gzip+base64`,
+      `${commandPrefix}unzip <base64> - Nyahmampat gzip+base64 atau reply chat/media ke teks`,
+      `${commandPrefix}<location_code> - Detail lokasi + gambar + link`,
+      `.<location_code> - Alias lokasi guna dot (contoh: .33)`,
     ].join('\n');
   }
 
@@ -457,11 +568,11 @@ export async function executeCommand(text, runtime) {
   }
 
   if (command === 'zip') {
-    return buildZipCommandReply(arg);
+    return buildZipCommandReply(arg || quotedText);
   }
 
   if (command === 'unzip') {
-    return buildUnzipCommandReply(arg);
+    return buildUnzipCommandReply(arg || quotedText);
   }
 
   if (!arg) {
@@ -486,7 +597,6 @@ export async function executeCommand(text, runtime) {
 export async function startBot(overrides = {}) {
   const onQr = typeof overrides.onQr === 'function' ? overrides.onQr : null;
   const onStatus = typeof overrides.onStatus === 'function' ? overrides.onStatus : null;
-  const printTerminalQr = overrides.printTerminalQr !== false;
   const { appBaseUrl, commandPrefix, authDir, allowedNumbers } = buildRuntimeConfig(overrides);
   if (!appBaseUrl) {
     throw new Error('APP_BASE_URL is required. Example: https://your-app.vercel.app');
@@ -496,6 +606,7 @@ export async function startBot(overrides = {}) {
 
   const http = createHttpClient(appBaseUrl);
   const runtime = { commandPrefix, allowedNumbers, http };
+  const pairingMethod = await choosePairingMethod(overrides);
 
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
@@ -510,16 +621,26 @@ export async function startBot(overrides = {}) {
 
   sock.ev.on('creds.update', saveCreds);
 
+  if (!sock.authState.creds.registered) {
+    if (pairingMethod === 'phone') {
+      const phoneNumber = await choosePairingPhoneNumber(overrides);
+      onStatus?.('pairing-phone');
+      const pairingCode = await sock.requestPairingCode(phoneNumber);
+      onStatus?.('pairing-code');
+      console.log(`Pairing code untuk ${phoneNumber}: ${pairingCode}`);
+    } else {
+      onStatus?.('qr');
+    }
+  }
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
       onQr?.(qr);
       onStatus?.('qr');
-      if (printTerminalQr) {
-        console.log('\nScan QR ini dalam WhatsApp > Linked Devices > Link a Device\n');
-        qrcode.generate(qr, { small: true });
-      }
+      console.log('\nScan QR ini dalam WhatsApp > Linked Devices > Link a Device\n');
+      qrcode.generate(qr, { small: true });
     }
 
     if (connection === 'open') {
@@ -568,7 +689,7 @@ export async function startBot(overrides = {}) {
         const text = getTextMessageContent(msg.message).trim();
         if (!text.startsWith(runtime.commandPrefix)) continue;
 
-        const reply = await executeCommand(text, runtime);
+        const reply = await executeCommand(text, runtime, msg.message);
         if (!reply) continue;
 
         if (typeof reply === 'string') {
@@ -580,11 +701,7 @@ export async function startBot(overrides = {}) {
           if (reply.audioBuffer) {
             await sock.sendMessage(
               remoteJid,
-              {
-                audio: reply.audioBuffer,
-                mimetype: 'audio/mpeg',
-                ptt: false,
-              },
+              buildTtsAudioMessage(reply.audioBuffer),
               { quoted: msg },
             );
             continue;

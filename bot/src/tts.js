@@ -1,10 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-
-const execFileAsync = promisify(execFile);
+import axios from 'axios';
 
 function escapeQuery(value) {
   return encodeURIComponent(String(value || '').trim());
@@ -16,43 +10,31 @@ export function buildGoogleTtsUrl(text, lang = 'ms') {
   return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${safeLang}&q=${safeText}`;
 }
 
-export async function fetchTtsAudioBuffer(text, lang = 'ms') {
+export async function fetchTtsAudioBuffer(text, lang = 'ms', options = {}) {
   const safeText = String(text || '').trim();
   if (!safeText) {
     return null;
   }
 
-  const tempFile = path.join(tmpdir(), `routebot-tts-${Date.now()}-${Math.random().toString(16).slice(2)}.mp3`);
-  const pythonScript = `
-import sys
-from gtts import gTTS
-
-text = sys.argv[1]
-lang = sys.argv[2] if len(sys.argv) > 2 else 'ms'
-out_path = sys.argv[3] if len(sys.argv) > 3 else '/tmp/out.mp3'
-
-speech = gTTS(text=text, lang=lang, slow=False)
-speech.save(out_path)
-`;
-
   try {
-    await execFileAsync('python3', ['-c', pythonScript, safeText, lang, tempFile]);
-    if (!existsSync(tempFile)) {
-      return null;
+    const audioUrl = buildGoogleTtsUrl(safeText, lang);
+    if (typeof options.fetchAudio === 'function') {
+      return await options.fetchAudio(audioUrl, { text: safeText, lang });
     }
 
-    const buffer = readFileSync(tempFile);
-    return buffer;
+    const response = await axios.get(audioUrl, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://translate.google.com/',
+      },
+      validateStatus: (status) => status >= 200 && status < 300,
+    });
+
+    return Buffer.from(response.data);
   } catch {
     return null;
-  } finally {
-    if (existsSync(tempFile)) {
-      try {
-        unlinkSync(tempFile);
-      } catch {
-        // ignore cleanup errors
-      }
-    }
   }
 }
 
@@ -70,7 +52,7 @@ export async function buildTtsCommandResult(text, options = {}) {
 
   const lang = options.lang || 'ms';
   const audioUrl = buildGoogleTtsUrl(safeText, lang);
-  const audioBuffer = await fetchTtsAudioBuffer(safeText, lang);
+  const audioBuffer = await fetchTtsAudioBuffer(safeText, lang, options);
 
   return {
     type: 'tts',

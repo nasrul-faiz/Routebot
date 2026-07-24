@@ -58,6 +58,8 @@ Prefix default bot ialah `.` jadi command seperti `.help`, `.zip`, dan `.unzip` 
 
 Then scan the QR in terminal from WhatsApp Linked Devices.
 
+Kalau nak guna pairing nombor telefon, bot akan tanya pilihan semasa start. Format nombor ialah antarabangsa tanpa `+`, contohnya `60123456789`.
+
 If running unified server (`npm start`), bot dashboard URL is:
 
 - `/bot/dashboard`

@@ -56,9 +56,23 @@ cp .env.example .env
 npm start
 ```
 
-7. Scan QR yang muncul dalam terminal:
+7. Bila bot mula, anda akan ditanya untuk pilih pairing:
+
+- `1` = QR code
+- `2` = nombor telefon
+
+Jika pilih nombor telefon, masukkan nombor dalam format antarabangsa tanpa `+` dan tanpa space, contoh `60123456789`.
+
+8. Jika pilih QR, scan QR yang muncul dalam terminal:
 
 - WhatsApp -> Linked Devices -> Link a Device
+
+### Pilihan automasi
+
+Kalau anda tak mahu prompt interaktif, set env berikut:
+
+- `BOT_PAIRING_METHOD=qr` atau `BOT_PAIRING_METHOD=phone`
+- `BOT_PAIRING_PHONE_NUMBER=60123456789`
 
 ## Command tersedia
 
