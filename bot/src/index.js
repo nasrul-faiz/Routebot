@@ -5,7 +5,9 @@ import { createInterface } from 'node:readline/promises';
 import { config as loadDotenv } from 'dotenv';
 import axios from 'axios';
 import pino from 'pino';
-import qrcode from 'qrcode-terminal';
+import qrcodeTerminal from 'qrcode-terminal';
+import QRCode from 'qrcode';
+import PDFDocument from 'pdfkit';
 import { buildLocationLinks as buildLocationLinksFromPoint, chunkLinksForButtons } from './link-buttons.js';
 import { buildTtsCommandResult } from './tts.js';
 import { buildUnzipCommandReply, buildZipCommandReply, buildZipMediaCommandReply } from './zip.js';
@@ -185,6 +187,27 @@ function hasDownloadableMedia(media) {
   return Boolean(media && (media.url || media.thumbnailDirectPath));
 }
 
+function getMessageMedia(message) {
+  const mediaKeys = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'];
+
+  for (const key of mediaKeys) {
+    const media = message?.[key];
+    if (media && typeof media === 'object' && hasDownloadableMedia(media)) {
+      return {
+        mediaType: key.replace('Message', ''),
+        media,
+      };
+    }
+  }
+
+  const nestedMessage = message?.viewOnceMessage?.message || message?.viewOnceMessageV2?.message;
+  if (nestedMessage && typeof nestedMessage === 'object') {
+    return getMessageMedia(nestedMessage);
+  }
+
+  return null;
+}
+
 function getQuotedMediaMessage(message) {
   const contextInfo =
     message?.extendedTextMessage?.contextInfo
@@ -209,7 +232,54 @@ function getQuotedMediaMessage(message) {
     }
   }
 
+  const nestedQuotedMessage = quotedMessage?.viewOnceMessage?.message || quotedMessage?.viewOnceMessageV2?.message;
+  if (nestedQuotedMessage && typeof nestedQuotedMessage === 'object') {
+    return getMessageMedia(nestedQuotedMessage);
+  }
+
   return null;
+}
+
+function getAllQuotedMediaMessages(message) {
+  const results = [];
+  const contextInfo =
+    message?.extendedTextMessage?.contextInfo
+    || message?.imageMessage?.contextInfo
+    || message?.videoMessage?.contextInfo
+    || message?.documentMessage?.contextInfo
+    || message?.audioMessage?.contextInfo
+    || null;
+
+  const quotedMessage = contextInfo?.quotedMessage;
+  if (!quotedMessage) return results;
+
+  const mediaKeys = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'];
+  for (const key of mediaKeys) {
+    const media = quotedMessage[key];
+    if (media && typeof media === 'object' && hasDownloadableMedia(media)) {
+      results.push({
+        quotedMessage,
+        mediaType: key.replace('Message', ''),
+        media,
+      });
+    }
+  }
+
+  if (results.length > 0) return results;
+
+  const nestedQuotedMessage = quotedMessage?.viewOnceMessage?.message || quotedMessage?.viewOnceMessageV2?.message;
+  if (nestedQuotedMessage && typeof nestedQuotedMessage === 'object') {
+    const nestedMedia = getMessageMedia(nestedQuotedMessage);
+    if (nestedMedia) {
+      results.push(nestedMedia);
+    }
+  }
+
+  return results;
+}
+
+function isViewOnceMedia(media) {
+  return Boolean(media?.viewOnce || media?.isViewOnce || media?.viewOnceMessage);
 }
 
 function getQuotedMediaFileName(mediaType, media) {
@@ -618,6 +688,10 @@ export async function executeCommand(text, runtime, message = null) {
       `${commandPrefix}route <code|name> - Detail route`,
       `${commandPrefix}today - Ringkasan stop aktif hari ini`,
       `${commandPrefix}tts <text> - Hantar teks + audio TTS`,
+      `${commandPrefix}vv - Hantar semula media view-once (gambar/video)`,
+      `${commandPrefix}qr <text> - Hasilkan QR code PNG berkualiti tinggi`,
+      `${commandPrefix}txt <text> - Hasilkan fail .txt daripada teks`,
+      `${commandPrefix}pdf <text> - Hasilkan fail .pdf daripada teks`,
       `${commandPrefix}sticker - Reply gambar/video jadi sticker`,
       `${commandPrefix}sticker nobg - Reply gambar jadi sticker tanpa background`,
       `${commandPrefix}zip <text> - Compress teks ke gzip+base64 atau reply media jadi zip file`,
@@ -669,6 +743,132 @@ export async function executeCommand(text, runtime, message = null) {
   if (command === 'tts' || command === 'voice') {
     const textToRead = arg || quotedText || 'Halo, bot Routebot siap membantu.';
     return buildTtsCommandResult(textToRead, { lang: 'ms' });
+  }
+
+  if (command === 'vv') {
+    const sourceMedia = getMessageMedia(message) || quotedMedia;
+    if (!sourceMedia) {
+      return `Hantar atau reply media view-once (gambar/video) dan kemudian ${commandPrefix}vv`;
+    }
+
+    if (sourceMedia.mediaType !== 'image' && sourceMedia.mediaType !== 'video') {
+      return 'Media ini tidak disokong untuk .vv. Guna gambar atau video view-once.';
+    }
+
+    if (!isViewOnceMedia(sourceMedia.media)) {
+      return 'Media ini bukan view-once. Hantar gambar/video view-once dan cuba lagi.';
+    }
+
+    const mediaBuffer = await quotedMediaDownloader(sourceMedia.media, sourceMedia.mediaType);
+    if (!mediaBuffer) {
+      return 'Gagal memuat turun media view-once.';
+    }
+
+    const caption = arg || quotedText || '';
+
+    return {
+      type: 'view-once',
+      mediaBuffer,
+      mediaType: sourceMedia.mediaType,
+      mimetype: sourceMedia.mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
+      caption: caption || undefined,
+    };
+  }
+
+  if (command === 'qr') {
+    const qrText = arg || quotedText || '';
+    if (!qrText) {
+      return `Sila isi teks untuk QR code. Contoh: ${commandPrefix}qr https://example.com`;
+    }
+
+    const qrBuffer = await QRCode.toBuffer(qrText, {
+      errorCorrectionLevel: 'H',
+      type: 'png',
+      margin: 2,
+      scale: 8,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    });
+
+    return {
+      type: 'qrcode',
+      imageBuffer: qrBuffer,
+      mimetype: 'image/png',
+      caption: qrText,
+    };
+  }
+
+  if (command === 'txt') {
+    const textContent = arg || quotedText || '';
+    if (!textContent) {
+      return `Sila isi teks untuk fail .txt. Contoh: ${commandPrefix}txt hello world`;
+    }
+
+    return {
+      type: 'document',
+      document: Buffer.from(textContent, 'utf8'),
+      fileName: 'document.txt',
+      mimetype: 'text/plain',
+    };
+  }
+
+  if (command === 'pdf') {
+    const textContent = arg || quotedText || '';
+    const allQuotedMedia = getAllQuotedMediaMessages(message);
+    const supportedMedia = allQuotedMedia.filter((item) => item.mediaType === 'image');
+
+    const imageBuffers = [];
+    for (const item of supportedMedia) {
+      const mediaBuffer = await quotedMediaDownloader(item.media, item.mediaType);
+      if (mediaBuffer) {
+        imageBuffers.push(mediaBuffer);
+      }
+    }
+
+    const pdfBuffer = await new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 36 });
+      const chunks = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      if (textContent) {
+        doc.fontSize(12).text(textContent, { align: 'left' });
+        doc.moveDown(1.2);
+      }
+
+      if (imageBuffers.length > 0) {
+        imageBuffers.forEach((imageBuffer, index) => {
+          try {
+            doc.image(Buffer.from(imageBuffer), {
+              fit: [500, 250],
+              align: 'center',
+              valign: 'center',
+            });
+            if (index < imageBuffers.length - 1) {
+              doc.moveDown(0.7);
+            }
+          } catch (error) {
+            console.warn('Failed to embed image into PDF:', error);
+            doc.fontSize(10).text('Satu atau lebih gambar tidak dapat dimasukkan ke dalam PDF.', { align: 'left' });
+          }
+        });
+      } else if (allQuotedMedia.length > 0) {
+        doc.fontSize(10).text('Hanya gambar yang disokong untuk PDF. Video tidak dimasukkan.', { align: 'left' });
+      }
+
+      doc.end();
+    });
+
+    return {
+      type: 'document',
+      document: pdfBuffer,
+      fileName: 'document.pdf',
+      mimetype: 'application/pdf',
+    };
   }
 
   if (command === 'sticker' || command === 'stiker') {
@@ -733,7 +933,11 @@ export async function executeCommand(text, runtime, message = null) {
     }
   }
 
-  return `Command tidak dikenali. Guna ${commandPrefix}help`;
+  return [
+    'Command not found.',
+    '',
+    `Klik button di bawah untuk lihat semua command: ${commandPrefix}help`,
+  ].join('\n');
 }
 
 export async function startBot(overrides = {}) {
@@ -785,7 +989,7 @@ export async function startBot(overrides = {}) {
       onQr?.(qr);
       onStatus?.('qr');
       console.log('\nScan QR ini dalam WhatsApp > Linked Devices > Link a Device\n');
-      qrcode.generate(qr, { small: true });
+      qrcodeTerminal.generate(qr, { small: true });
     }
 
     if (connection === 'open') {
@@ -892,6 +1096,63 @@ export async function startBot(overrides = {}) {
               }
             : { text: 'Audio tidak tersedia pada saat ini.' };
           await sock.sendMessage(remoteJid, audioMessage, { quoted: msg });
+          continue;
+        }
+
+        if (reply.type === 'view-once') {
+          if (reply.mediaBuffer) {
+            const payload = reply.mediaType === 'video'
+              ? {
+                  video: reply.mediaBuffer,
+                  mimetype: reply.mimetype || 'video/mp4',
+                  caption: reply.caption,
+                }
+              : {
+                  image: reply.mediaBuffer,
+                  mimetype: reply.mimetype || 'image/jpeg',
+                  caption: reply.caption,
+                };
+            await sock.sendMessage(remoteJid, payload, { quoted: msg });
+            continue;
+          }
+
+          await sock.sendMessage(remoteJid, { text: 'Gagal memuat turun media view-once.' }, { quoted: msg });
+          continue;
+        }
+
+        if (reply.type === 'qrcode') {
+          if (reply.imageBuffer) {
+            await sock.sendMessage(
+              remoteJid,
+              {
+                image: reply.imageBuffer,
+                mimetype: reply.mimetype || 'image/png',
+                caption: reply.caption,
+              },
+              { quoted: msg },
+            );
+            continue;
+          }
+
+          await sock.sendMessage(remoteJid, { text: 'Gagal menghasilkan QR code.' }, { quoted: msg });
+          continue;
+        }
+
+        if (reply.type === 'document') {
+          if (reply.document) {
+            await sock.sendMessage(
+              remoteJid,
+              {
+                document: reply.document,
+                fileName: reply.fileName || 'document.txt',
+                mimetype: reply.mimetype || 'text/plain',
+              },
+              { quoted: msg },
+            );
+            continue;
+          }
+
+          await sock.sendMessage(remoteJid, { text: 'Gagal menghasilkan dokumen.' }, { quoted: msg });
           continue;
         }
 

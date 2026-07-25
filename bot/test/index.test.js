@@ -146,3 +146,98 @@ test('sticker command passes nobg flag to sticker builder', async () => {
   assert.equal(calls[0].options.mediaType, 'image');
   assert.equal(calls[0].options.removeBackground, true);
 });
+
+test('vv command returns a media payload from a view-once image message', async () => {
+  const reply = await executeCommand('.vv', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+    async downloadQuotedMediaBuffer(media, mediaType) {
+      assert.equal(mediaType, 'image');
+      return Buffer.from('view-once-image');
+    },
+  }, {
+    imageMessage: {
+      viewOnce: true,
+      url: 'https://example.com/photo.jpg',
+    },
+  });
+
+  assert.equal(reply.type, 'view-once');
+  assert.equal(reply.mediaType, 'image');
+  assert.ok(Buffer.isBuffer(reply.mediaBuffer));
+  assert.equal(reply.mediaBuffer.toString('utf8'), 'view-once-image');
+});
+
+test('vv command carries an optional caption text', async () => {
+  const reply = await executeCommand('.vv caption contoh', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+    async downloadQuotedMediaBuffer() {
+      return Buffer.from('view-once-image');
+    },
+  }, {
+    imageMessage: {
+      viewOnce: true,
+      url: 'https://example.com/photo.jpg',
+    },
+  });
+
+  assert.equal(reply.type, 'view-once');
+  assert.equal(reply.caption, 'caption contoh');
+});
+
+test('qr command returns a high-quality qr image payload', async () => {
+  const reply = await executeCommand('.qr hello world', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+  });
+
+  assert.equal(reply.type, 'qrcode');
+  assert.ok(Buffer.isBuffer(reply.imageBuffer));
+  assert.equal(reply.mimetype, 'image/png');
+  assert.equal(reply.caption, 'hello world');
+});
+
+test('txt command returns a text document payload', async () => {
+  const reply = await executeCommand('.txt hello world', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+  });
+
+  assert.equal(reply.type, 'document');
+  assert.ok(Buffer.isBuffer(reply.document));
+  assert.equal(reply.fileName, 'document.txt');
+  assert.equal(reply.mimetype, 'text/plain');
+});
+
+test('pdf command returns a pdf document payload', async () => {
+  const reply = await executeCommand('.pdf hello world', {
+    commandPrefix: '.',
+    http: {
+      async get() {
+        throw new Error('not used');
+      },
+    },
+  });
+
+  assert.equal(reply.type, 'document');
+  assert.ok(Buffer.isBuffer(reply.document));
+  assert.equal(reply.fileName, 'document.pdf');
+  assert.equal(reply.mimetype, 'application/pdf');
+});
